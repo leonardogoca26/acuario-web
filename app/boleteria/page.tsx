@@ -2,407 +2,540 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Printer, AlertTriangle, CheckCircle2, History, ArrowLeft } from 'lucide-react';
+import { Printer, AlertTriangle, CheckCircle2, History, ArrowLeft, Building2 } from 'lucide-react';
 import Link from 'next/link';
 
-interface CierreItem {
-  id: string;
-  folio: number;
+interface CierreCaja {
+  id?: string;
+  folio?: number;
+  fecha: string;
   turno: string;
-  total_visitantes: number;
-  total_ingresos: number;
-  estado: string;
+  cajero: string;
+  adultos: number;
+  ninos: number;
+  total_personas: number;
+  venta_entradas: number;
+  venta_tienda: number;
+  total_bruto: number;
+  efectivo: number;
+  transbank: number;
+  transferencias: number;
+  total_declarado: number;
+  diferencia: number;
+  observaciones: string;
+  estado?: string;
 }
 
 export default function BoleteriaPage() {
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string; folio?: number } | null>(null);
-  const [historialDia, setHistorialDia] = useState<CierreItem[]>([]);
+  const hoy = new Date().toISOString().split('T')[0];
 
-  const [formData, setFormData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    turno: 'Jornada Completa',
-    cajero_nombre: 'Boletería Principal',
+  const [form, setForm] = useState<CierreCaja>({
+    fecha: hoy,
+    turno: 'Turno Completo',
+    cajero: 'Boletería Principal',
     adultos: 0,
     ninos: 0,
-    monto_entradas: 0,
-    monto_tienda: 0,
-    pago_efectivo: 0,
-    pago_tarjetas: 0,
-    pago_transferencia: 0,
+    total_personas: 0,
+    venta_entradas: 0,
+    venta_tienda: 0,
+    total_bruto: 0,
+    efectivo: 0,
+    transbank: 0,
+    transferencias: 0,
+    total_declarado: 0,
+    diferencia: 0,
     observaciones: ''
   });
 
-  const totalVisitantes = Number(formData.adultos) + Number(formData.ninos);
-  const totalIngresos = Number(formData.monto_entradas) + Number(formData.monto_tienda);
-  const totalMediosPago = Number(formData.pago_efectivo) + Number(formData.pago_tarjetas) + Number(formData.pago_transferencia);
-  const diferenciaCuadre = totalIngresos - totalMediosPago;
+  const [historial, setHistorial] = useState<any[]>([]);
+  const [ultimoCierre, setUltimoCierre] = useState<CierreCaja | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [mensaje, setMensaje] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null);
 
-  const cargarCierresDelDia = async (fecha: string) => {
-    const { data } = await supabase
-      .from('cierres_diarios')
-      .select('*')
-      .eq('fecha', fecha)
-      .order('created_at', { ascending: false });
+  // Recálculo dinámico de totales y cuadre
+  useEffect(() => {
+    const totalP = Number(form.adultos || 0) + Number(form.ninos || 0);
+    const totalV = Number(form.venta_entradas || 0) + Number(form.venta_tienda || 0);
+    const totalD = Number(form.efectivo || 0) + Number(form.transbank || 0) + Number(form.transferencias || 0);
+    const dif = totalD - totalV;
 
-    if (data) setHistorialDia(data as CierreItem[]);
+    setForm(prev => ({
+      ...prev,
+      total_personas: totalP,
+      total_bruto: totalV,
+      total_declarado: totalD,
+      diferencia: dif
+    }));
+  }, [form.adultos, form.ninos, form.venta_entradas, form.venta_tienda, form.efectivo, form.transbank, form.transferencias]);
+
+  const cargarHistorial = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('boleteria')
+        .select('*')
+        .eq('fecha', hoy)
+        .order('id', { ascending: false });
+
+      if (!error && data) {
+        setHistorial(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   useEffect(() => {
-    cargarCierresDelDia(formData.fecha);
-  }, [formData.fecha]);
+    cargarHistorial();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
+    const { name, value, type } = e.target;
+    setForm(prev => ({
       ...prev,
-      [name]: name === 'fecha' || name === 'turno' || name === 'cajero_nombre' || name === 'observaciones' ? value : Number(value)
+      [name]: type === 'number' ? (value === '' ? 0 : Number(value)) : value
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setStatus(null);
+    setCargando(true);
+    setMensaje(null);
 
-    if (diferenciaCuadre !== 0) {
-      setStatus({
-        type: 'error',
-        message: `La caja no cuadra. Hay una diferencia de $${Math.abs(diferenciaCuadre).toLocaleString('es-CL')}.`
-      });
-      setLoading(false);
-      return;
+    try {
+      const payload = {
+        fecha: form.fecha,
+        turno: form.turno,
+        cajero: form.cajero,
+        adultos: form.adultos,
+        ninos: form.ninos,
+        total_personas: form.total_personas,
+        venta_entradas: form.venta_entradas,
+        venta_tienda: form.venta_tienda,
+        total_bruto: form.total_bruto,
+        efectivo: form.efectivo,
+        transbank: form.transbank,
+        transferencias: form.transferencias,
+        total_declarado: form.total_declarado,
+        diferencia: form.diferencia,
+        observaciones: form.observaciones,
+        estado: 'activo'
+      };
+
+      const { data, error } = await supabase
+        .from('boleteria')
+        .insert([payload])
+        .select();
+
+      if (error) throw error;
+
+      const guardado = data && data[0] ? data[0] : payload;
+      setUltimoCierre(guardado);
+      setMensaje({ tipo: 'exito', texto: `Cierre registrado con éxito bajo Folio #${guardado.id || 'NUEVO'}` });
+
+      cargarHistorial();
+    } catch (err: any) {
+      setMensaje({ tipo: 'error', texto: `Error al guardar: ${err.message || 'Error de conexión'}` });
+    } finally {
+      setCargando(false);
     }
-
-    if (totalIngresos === 0 && totalVisitantes === 0) {
-      setStatus({
-        type: 'error',
-        message: 'No puedes enviar un cierre en cero.'
-      });
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from('cierres_diarios')
-      .insert([
-        {
-          fecha: formData.fecha,
-          turno: formData.turno,
-          cajero_nombre: formData.cajero_nombre,
-          adultos: formData.adultos,
-          ninos: formData.ninos,
-          monto_entradas: formData.monto_entradas,
-          monto_tienda: formData.monto_tienda,
-          pago_efectivo: formData.pago_efectivo,
-          pago_tarjetas: formData.pago_tarjetas,
-          pago_transferencia: formData.pago_transferencia,
-          observaciones: formData.observaciones,
-          estado: 'activo'
-        }
-      ])
-      .select('folio')
-      .single();
-
-    if (error) {
-      setStatus({ type: 'error', message: `Error al guardar: ${error.message}` });
-    } else {
-      setStatus({ 
-        type: 'success', 
-        message: `¡Cierre registrado con éxito bajo el Folio #${data?.folio || 'N/A'}!`,
-        folio: data?.folio 
-      });
-      cargarCierresDelDia(formData.fecha);
-      setFormData((prev) => ({
-        ...prev,
-        adultos: 0,
-        ninos: 0,
-        monto_entradas: 0,
-        monto_tienda: 0,
-        pago_efectivo: 0,
-        pago_tarjetas: 0,
-        pago_transferencia: 0,
-        observaciones: ''
-      }));
-    }
-    setLoading(false);
   };
 
-  const anularRegistro = async (id: string, folio: number) => {
-    if (!confirm(`¿Estás seguro de anular el Cierre Folio #${folio}?`)) return;
-    const { error } = await supabase.from('cierres_diarios').update({ estado: 'anulado' }).eq('id', id);
-    if (!error) cargarCierresDelDia(formData.fecha);
+  const handlePrint = () => {
+    window.print();
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 p-4 sm:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        
-        <div className="flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 gap-1.5 transition">
-            <ArrowLeft className="w-4 h-4" /> Volver al Menú Principal
-          </Link>
-          <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full font-medium">
-            Terminal de Boletería
+    <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
+      
+      {/* ========================================================= */}
+      {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL (VISIBLE SOLO AL IMPRIMIR) */}
+      {/* ========================================================= */}
+      <div className="hidden print:block font-sans text-black p-4 max-w-2xl mx-auto bg-white">
+        <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-start">
+          <div>
+            <h1 className="text-xl font-black tracking-tight uppercase">Parque Acuario Puyehue</h1>
+            <p className="text-xs text-slate-600 font-semibold">Comprobante de Arqueo y Cierre Diario de Boletería</p>
+            <p className="text-[10px] text-slate-500">Ruta 215 Km 48 • Entre Lagos, Puyehue</p>
+          </div>
+          <div className="text-right border border-slate-300 p-2 rounded">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Folio Registro</div>
+            <div className="text-base font-mono font-black text-slate-900">
+              #{ultimoCierre?.id || ultimoCierre?.folio || 'BORRADOR'}
+            </div>
+          </div>
+        </div>
+
+        {/* Metadatos */}
+        <div className="grid grid-cols-3 gap-2 text-xs border border-slate-200 p-2.5 mb-4 bg-slate-50 rounded">
+          <div><span className="font-bold text-slate-600">Fecha:</span> {form.fecha}</div>
+          <div><span className="font-bold text-slate-600">Turno:</span> {form.turno}</div>
+          <div><span className="font-bold text-slate-600">Responsable:</span> {form.cajero}</div>
+        </div>
+
+        {/* Afluencia */}
+        <table className="w-full text-xs border-collapse border border-slate-300 mb-4">
+          <thead>
+            <tr className="bg-slate-100 border-b border-slate-300 text-slate-800">
+              <th className="p-1.5 text-left">Categoría Afluencia</th>
+              <th className="p-1.5 text-right">Cantidad de Visitantes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-slate-200">
+              <td className="p-1.5">Adultos</td>
+              <td className="p-1.5 text-right font-mono">{form.adultos}</td>
+            </tr>
+            <tr className="border-b border-slate-200">
+              <td className="p-1.5">Niños / Estudiantes</td>
+              <td className="p-1.5 text-right font-mono">{form.ninos}</td>
+            </tr>
+            <tr className="font-bold bg-slate-50">
+              <td className="p-1.5">Total Personas Ingresadas</td>
+              <td className="p-1.5 text-right font-mono">{form.total_personas} pers.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Ventas vs Arqueo */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <table className="w-full text-xs border-collapse border border-slate-300">
+            <thead>
+              <tr className="bg-slate-100 border-b border-slate-300">
+                <th className="p-1.5 text-left">Detalle Ingresos</th>
+                <th className="p-1.5 text-right">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-slate-200">
+                <td className="p-1.5">Boletería / Entradas</td>
+                <td className="p-1.5 text-right font-mono">${form.venta_entradas.toLocaleString('es-CL')}</td>
+              </tr>
+              <tr className="border-b border-slate-200">
+                <td className="p-1.5">Tienda / Souvenirs</td>
+                <td className="p-1.5 text-right font-mono">${form.venta_tienda.toLocaleString('es-CL')}</td>
+              </tr>
+              <tr className="font-bold bg-slate-50">
+                <td className="p-1.5">Total Venta</td>
+                <td className="p-1.5 text-right font-mono">${form.total_bruto.toLocaleString('es-CL')}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table className="w-full text-xs border-collapse border border-slate-300">
+            <thead>
+              <tr className="bg-slate-100 border-b border-slate-300">
+                <th className="p-1.5 text-left">Medio de Pago</th>
+                <th className="p-1.5 text-right">Declarado</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-slate-200">
+                <td className="p-1.5">Efectivo Rendido</td>
+                <td className="p-1.5 text-right font-mono">${form.efectivo.toLocaleString('es-CL')}</td>
+              </tr>
+              <tr className="border-b border-slate-200">
+                <td className="p-1.5">Vouchers POS (Transbank)</td>
+                <td className="p-1.5 text-right font-mono">${form.transbank.toLocaleString('es-CL')}</td>
+              </tr>
+              <tr className="border-b border-slate-200">
+                <td className="p-1.5">Transferencias Bancarias</td>
+                <td className="p-1.5 text-right font-mono">${form.transferencias.toLocaleString('es-CL')}</td>
+              </tr>
+              <tr className="font-bold bg-slate-50">
+                <td className="p-1.5">Total Arqueado</td>
+                <td className="p-1.5 text-right font-mono">${form.total_declarado.toLocaleString('es-CL')}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Balance */}
+        <div className={`p-2.5 rounded border text-xs flex justify-between items-center mb-4 ${form.diferencia === 0 ? 'bg-slate-50 border-slate-300' : 'bg-red-50 border-red-300 text-red-900 font-bold'}`}>
+          <span>Diferencia de Cuadre:</span>
+          <span className="font-mono text-sm font-black">
+            {form.diferencia === 0 ? '$0 (Cuadre Exacto)' : `$${form.diferencia.toLocaleString('es-CL')} (${form.diferencia > 0 ? 'Sobrante' : 'Faltante'})`}
           </span>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sm:p-8">
-          <header className="border-b border-slate-100 pb-4 mb-6">
-            <h1 className="text-2xl font-bold text-slate-800">Cierre de Boletería</h1>
-            <p className="text-sm text-slate-500">Parque Acuario - Control Diario de Caja y Afluencia</p>
-          </header>
+        {/* Observaciones */}
+        {form.observaciones && (
+          <div className="border border-slate-200 p-2 text-[11px] mb-8 bg-slate-50">
+            <span className="font-bold">Observaciones:</span> {form.observaciones}
+          </div>
+        )}
 
-          {status && (
-            <div
-              className={`p-4 mb-6 rounded-lg text-sm font-medium flex items-center justify-between ${
-                status.type === 'success' 
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {status.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-rose-600" />}
-                <span>{status.message}</span>
-              </div>
-              {status.folio && (
-                <button 
-                  onClick={() => window.print()} 
-                  className="inline-flex items-center gap-1.5 bg-white border border-emerald-300 text-emerald-700 px-3 py-1 rounded text-xs hover:bg-emerald-50"
-                >
-                  <Printer className="w-3.5 h-3.5" /> Imprimir Comprobante
-                </button>
-              )}
+        {/* Firmas de Responsabilidad */}
+        <div className="grid grid-cols-2 gap-12 mt-12 pt-6 text-center text-xs">
+          <div>
+            <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">{form.cajero}</div>
+            <div className="text-[10px] text-slate-500">Firma Cajero(a) Saliente</div>
+          </div>
+          <div>
+            <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">Administración / Tesorería</div>
+            <div className="text-[10px] text-slate-500">Recepción Conforme</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* 2. FORMULARIO EN PANTALLA (SE OCULTA COMPLETAMENTE AL IMPRIMIR) */}
+      {/* ========================================================= */}
+      <div className="print:hidden max-w-4xl mx-auto space-y-6">
+        
+        <div className="flex items-center justify-between">
+          <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition">
+            <ArrowLeft className="w-4 h-4 mr-1" /> Volver al Inicio
+          </Link>
+          <span className="text-xs text-slate-400">Terminal de Recaudación</span>
+        </div>
+
+        {mensaje && (
+          <div className={`p-4 rounded-xl border flex items-center justify-between ${mensaje.tipo === 'exito' ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200' : 'bg-rose-950/60 border-rose-500/40 text-rose-200'}`}>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              {mensaje.tipo === 'exito' ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <AlertTriangle className="w-5 h-5 text-rose-400" />}
+              {mensaje.texto}
             </div>
-          )}
+            {mensaje.tipo === 'exito' && (
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg shadow transition"
+              >
+                <Printer className="w-3.5 h-3.5" /> Imprimir Acta Oficial
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
+          <div className="border-b border-slate-700 pb-4 mb-6 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold text-white tracking-tight">Cierre de Boletería Diario</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Control de afluencia, cuadratura de ingresos y arqueo</p>
+            </div>
+            {ultimoCierre && (
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition"
+              >
+                <Printer className="w-4 h-4" /> Reimprimir Último Cierre
+              </button>
+            )}
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha</label>
                 <input
                   type="date"
                   name="fecha"
-                  value={formData.fecha}
+                  value={form.fecha}
                   onChange={handleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-blue-600"
                   required
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Turno</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Turno</label>
                 <select
                   name="turno"
-                  value={formData.turno}
+                  value={form.turno}
                   onChange={handleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                 >
-                  <option value="Jornada Completa">Jornada Completa</option>
                   <option value="Turno Mañana">Turno Mañana</option>
                   <option value="Turno Tarde">Turno Tarde</option>
+                  <option value="Turno Completo">Turno Completo</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Cajero / Operador</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Cajero / Operador</label>
                 <input
                   type="text"
-                  name="cajero_nombre"
-                  value={formData.cajero_nombre}
+                  name="cajero"
+                  value={form.cajero}
                   onChange={handleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-blue-600"
                   required
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                 />
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Afluencia de Público</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Afluencia */}
+            <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-700/60 space-y-3">
+              <span className="text-xs uppercase font-bold text-sky-400 tracking-wider">Afluencia de Visitantes</span>
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Adultos</label>
+                  <label className="block text-xs text-slate-400 mb-1">Adultos</label>
                   <input
                     type="number"
                     name="adultos"
                     min="0"
-                    value={formData.adultos}
+                    value={form.adultos}
                     onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Niños</label>
+                  <label className="block text-xs text-slate-400 mb-1">Niños / Estudiantes</label>
                   <input
                     type="number"
                     name="ninos"
                     min="0"
-                    value={formData.ninos}
+                    value={form.ninos}
                     onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Total Personas</label>
-                  <div className="w-full bg-slate-200 rounded-lg p-2 font-bold text-slate-700">{totalVisitantes}</div>
+                  <label className="block text-xs text-slate-400 mb-1">Total Personas</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${form.total_personas} pers.`}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-emerald-400 font-bold font-mono"
+                  />
                 </div>
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Venta Bruta ($ CLP)</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Ventas & Arqueo */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-700/60 space-y-3">
+                <span className="text-xs uppercase font-bold text-teal-400 tracking-wider">Ventas Brutas ($ CLP)</span>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Boletería / Entradas</label>
+                  <label className="block text-xs text-slate-400 mb-1">Boletería / Entradas</label>
                   <input
                     type="number"
-                    name="monto_entradas"
-                    min="0"
-                    value={formData.monto_entradas}
+                    name="venta_entradas"
+                    value={form.venta_entradas}
                     onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Tienda / Souvenirs</label>
+                  <label className="block text-xs text-slate-400 mb-1">Tienda / Recuerdos</label>
                   <input
                     type="number"
-                    name="monto_tienda"
-                    min="0"
-                    value={formData.monto_tienda}
+                    name="venta_tienda"
+                    value={form.venta_tienda}
                     onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
                   />
                 </div>
+                <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-sm font-bold">
+                  <span className="text-slate-300">Total Ingresos:</span>
+                  <span className="text-teal-400 font-mono text-base">${form.total_bruto.toLocaleString('es-CL')}</span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-700/60 space-y-3">
+                <span className="text-xs uppercase font-bold text-amber-400 tracking-wider">Arqueo por Medios ($ CLP)</span>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Total Ingresos</label>
-                  <div className="w-full bg-blue-50 border border-blue-200 text-blue-900 rounded-lg p-2 font-bold">
-                    ${totalIngresos.toLocaleString('es-CL')}
+                  <label className="block text-xs text-slate-400 mb-1">Efectivo en Caja</label>
+                  <input
+                    type="number"
+                    name="efectivo"
+                    value={form.efectivo}
+                    onChange={handleChange}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">POS / Tarjetas</label>
+                    <input
+                      type="number"
+                      name="transbank"
+                      value={form.transbank}
+                      onChange={handleChange}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Transferencias</label>
+                    <input
+                      type="number"
+                      name="transferencias"
+                      value={form.transferencias}
+                      onChange={handleChange}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"
+                    />
                   </div>
                 </div>
+                <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-sm font-bold">
+                  <span className="text-slate-300">Total Arqueado:</span>
+                  <span className="text-amber-400 font-mono text-base">${form.total_declarado.toLocaleString('es-CL')}</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Arqueo por Medio de Pago ($ CLP)</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Efectivo Físico</label>
-                  <input
-                    type="number"
-                    name="pago_efectivo"
-                    min="0"
-                    value={formData.pago_efectivo}
-                    onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Transbank / Tarjetas</label>
-                  <input
-                    type="number"
-                    name="pago_tarjetas"
-                    min="0"
-                    value={formData.pago_tarjetas}
-                    onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Transferencias</label>
-                  <input
-                    type="number"
-                    name="pago_transferencia"
-                    min="0"
-                    value={formData.pago_transferencia}
-                    onChange={handleChange}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center text-sm">
-                <span className="text-slate-600">Total Declarado: <strong>${totalMediosPago.toLocaleString('es-CL')}</strong></span>
-                <span className={diferenciaCuadre === 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>
-                  {diferenciaCuadre === 0 ? '✓ Cuadre Exacto' : `⚠ Descuadre: $${diferenciaCuadre.toLocaleString('es-CL')}`}
-                </span>
-              </div>
+            {/* Balance de cuadre */}
+            <div className={`p-3 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-semibold ${form.diferencia === 0 ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300' : 'bg-rose-950/40 border-rose-500/30 text-rose-300'}`}>
+              <span>Balance de Cuadre:</span>
+              <span className="font-mono font-bold">
+                {form.diferencia === 0 ? '✓ Cuadre Exacto ($0)' : `Descuadre: $${form.diferencia.toLocaleString('es-CL')}`}
+              </span>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Observaciones</label>
+              <label className="block text-xs text-slate-400 mb-1">Observaciones</label>
               <textarea
                 name="observaciones"
                 rows={2}
-                value={formData.observaciones}
+                value={form.observaciones}
                 onChange={handleChange}
-                placeholder="Detalle de anomalías, billetes retenidos, etc."
-                className="w-full border border-slate-300 rounded-lg p-2 text-slate-800 outline-none"
+                placeholder="Novedades de la jornada, billetes dañados o vouchers retenidos..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
               />
             </div>
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 px-4 rounded-lg transition disabled:opacity-50 text-sm"
+              disabled={cargando}
+              className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-lg transition disabled:opacity-50"
             >
-              {loading ? 'Validando...' : 'Registrar y Generar Comprobante'}
+              {cargando ? 'Registrando Cierre...' : 'Registrar y Generar Acta Oficial'}
             </button>
           </form>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <History className="w-5 h-5 text-slate-500" />
-            <h2 className="text-base font-bold text-slate-800">Cierres Registrados Hoy ({formData.fecha})</h2>
-          </div>
-
-          {historialDia.length === 0 ? (
-            <p className="text-sm text-slate-400 py-2">No hay cierres registrados aún para esta fecha.</p>
-          ) : (
+        {/* Historial rápido */}
+        {historial.length > 0 && (
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
+            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Cierres de Hoy ({hoy})</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-600">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
+              <table className="w-full text-xs text-left text-slate-300">
+                <thead className="border-b border-slate-700 text-slate-400">
                   <tr>
-                    <th className="py-2.5 px-3">Folio</th>
-                    <th className="py-2.5 px-3">Turno</th>
-                    <th className="py-2.5 px-3">Público</th>
-                    <th className="py-2.5 px-3">Total Venta</th>
-                    <th className="py-2.5 px-3">Estado</th>
-                    <th className="py-2.5 px-3 text-right">Acción</th>
+                    <th className="py-2">Folio</th>
+                    <th className="py-2">Turno</th>
+                    <th className="py-2">Público</th>
+                    <th className="py-2">Venta Total</th>
+                    <th className="py-2">Diferencia</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {historialDia.map((item) => (
-                    <tr key={item.id} className={item.estado === 'anulado' ? 'opacity-40 bg-slate-50 line-through' : ''}>
-                      <td className="py-2.5 px-3 font-semibold text-slate-800">#{item.folio}</td>
-                      <td className="py-2.5 px-3">{item.turno}</td>
-                      <td className="py-2.5 px-3">{item.total_visitantes} pers.</td>
-                      <td className="py-2.5 px-3 font-medium text-slate-800">${Number(item.total_ingresos).toLocaleString('es-CL')}</td>
-                      <td className="py-2.5 px-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          item.estado === 'activo' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {item.estado}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {item.estado === 'activo' && (
-                          <button
-                            onClick={() => anularRegistro(item.id, item.folio)}
-                            className="text-xs text-rose-600 hover:text-rose-800 font-medium ml-2"
-                          >
-                            Anular
-                          </button>
-                        )}
+                <tbody className="divide-y divide-slate-800">
+                  {historial.map((c) => (
+                    <tr key={c.id}>
+                      <td className="py-2 font-mono text-sky-400">#{c.id}</td>
+                      <td className="py-2">{c.turno}</td>
+                      <td className="py-2">{c.total_personas} pers.</td>
+                      <td className="py-2 font-mono text-white">${Number(c.total_bruto).toLocaleString('es-CL')}</td>
+                      <td className={`py-2 font-mono ${Number(c.diferencia) === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        ${Number(c.diferencia).toLocaleString('es-CL')}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
       </div>
-    </main>
+    </div>
   );
 }
