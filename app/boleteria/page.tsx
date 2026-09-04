@@ -9,6 +9,7 @@ interface CierreCaja {
   id?: string | number;
   folio?: number;
   fecha: string;
+  temporada: string;
   turno: string;
   cajero: string;
   adultos: number;
@@ -31,6 +32,7 @@ export default function BoleteriaPage() {
 
   const [form, setForm] = useState<CierreCaja>({
     fecha: hoy,
+    temporada: 'Verano',
     turno: 'Turno Completo',
     cajero: 'Boletería Principal',
     adultos: 0,
@@ -103,6 +105,7 @@ export default function BoleteriaPage() {
     try {
       const payload = {
         fecha: form.fecha,
+        temporada: form.temporada,
         turno: form.turno,
         cajero: form.cajero,
         adultos: form.adultos,
@@ -140,7 +143,7 @@ export default function BoleteriaPage() {
   };
 
   const handleAnular = async (id: number | string) => {
-    const confirmar = window.confirm(`¿Confirmas anular el Cierre de Folio #${id}? Quedará registrado como nulo sin eliminar el registro histórico.`);
+    const confirmar = window.confirm(`¿Confirmas anular el Cierre de Folio #${id}?`);
     if (!confirmar) return;
 
     try {
@@ -165,7 +168,7 @@ export default function BoleteriaPage() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       
-      {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL (SOLO VISIBLE AL IMPRIMIR) */}
+      {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL */}
       <div className="hidden print:block font-sans text-black p-4 max-w-2xl mx-auto bg-white">
         <div className="border-b-2 border-slate-900 pb-4 mb-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -194,11 +197,12 @@ export default function BoleteriaPage() {
           </div>
         </div>
 
-        {/* Metadatos */}
-        <div className="grid grid-cols-3 gap-2 text-xs border border-slate-300 p-2.5 mb-4 bg-slate-50 rounded">
+        {/* Metadatos con Temporada */}
+        <div className="grid grid-cols-4 gap-2 text-xs border border-slate-300 p-2.5 mb-4 bg-slate-50 rounded">
           <div><span className="font-bold text-slate-700">Fecha:</span> {form.fecha}</div>
+          <div><span className="font-bold text-slate-700">Temporada:</span> {form.temporada}</div>
           <div><span className="font-bold text-slate-700">Turno:</span> {form.turno}</div>
-          <div><span className="font-bold text-slate-700">Responsable:</span> {form.cajero}</div>
+          <div><span className="font-bold text-slate-700">Cajero:</span> {form.cajero}</div>
         </div>
 
         {/* Afluencia */}
@@ -351,7 +355,7 @@ export default function BoleteriaPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha</label>
                 <input
@@ -363,6 +367,21 @@ export default function BoleteriaPage() {
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                 />
               </div>
+
+              {/* Selector de Temporada */}
+              <div>
+                <label className="block text-xs font-semibold text-amber-400 mb-1">Temporada</label>
+                <select
+                  name="temporada"
+                  value={form.temporada}
+                  onChange={handleChange}
+                  className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-2 text-sm text-amber-300 font-bold focus:outline-none focus:border-amber-400"
+                >
+                  <option value="Verano">☀️ Verano (Alta)</option>
+                  <option value="Invierno">❄️ Invierno (Baja)</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Turno</label>
                 <select
@@ -525,7 +544,7 @@ export default function BoleteriaPage() {
           </form>
         </div>
 
-        {/* Historial diario con estado y botón de anulación */}
+        {/* Historial con columna Temporada */}
         {historial.length > 0 && (
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
             <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Cierres Registrados Hoy ({hoy})</h3>
@@ -534,6 +553,7 @@ export default function BoleteriaPage() {
                 <thead className="border-b border-slate-700 text-slate-400">
                   <tr>
                     <th className="py-2 px-2">Folio</th>
+                    <th className="py-2 px-2">Temporada</th>
                     <th className="py-2 px-2">Turno</th>
                     <th className="py-2 px-2">Público</th>
                     <th className="py-2 px-2">Total Venta</th>
@@ -547,6 +567,11 @@ export default function BoleteriaPage() {
                     return (
                       <tr key={c.id} className={esAnulado ? 'opacity-40 line-through bg-slate-900/30' : ''}>
                         <td className="py-2 px-2 font-mono text-sky-400 font-bold">#{c.id}</td>
+                        <td className="py-2 px-2">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${c.temporada === 'Verano' ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-sky-950 text-sky-300 border border-sky-800'}`}>
+                            {c.temporada || 'Verano'}
+                          </span>
+                        </td>
                         <td className="py-2 px-2">{c.turno}</td>
                         <td className="py-2 px-2">{c.total_personas} pers.</td>
                         <td className="py-2 px-2 font-mono text-white">${Number(c.total_bruto).toLocaleString('es-CL')}</td>
@@ -561,7 +586,7 @@ export default function BoleteriaPage() {
                               type="button"
                               onClick={() => handleAnular(c.id)}
                               className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 px-2 py-1 rounded transition border border-rose-900/40"
-                              title="Anular este registro de cierre"
+                              title="Anular este registro"
                             >
                               <Ban className="w-3 h-3" /> Anular
                             </button>
