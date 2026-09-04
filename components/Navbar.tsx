@@ -3,10 +3,10 @@ import Image from 'next/image';
 
 export default function Navbar() {
   return (
-    <header className="bg-slate-950/90 backdrop-blur-md text-white sticky top-0 z-50 border-b border-sky-900/40 shadow-md">
+    <header className="print:hidden bg-slate-950/90 backdrop-blur-md text-white sticky top-0 z-50 border-b border-sky-900/40 shadow-md">
       <div className="max-w-6xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-4">
         
-        {/* Logo Flotante Transparente */}
+        {/* Logo Flotante */}
         <Link href="/" className="flex items-center gap-3 group">
           <div className="relative h-11 w-36 flex items-center justify-center">
             <Image 

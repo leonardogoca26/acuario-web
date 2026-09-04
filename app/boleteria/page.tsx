@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Printer, AlertTriangle, CheckCircle2, History, ArrowLeft, Building2 } from 'lucide-react';
+import { Printer, AlertTriangle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 interface CierreCaja {
-  id?: string;
+  id?: string | number;
   folio?: number;
   fecha: string;
   turno: string;
@@ -52,7 +52,6 @@ export default function BoleteriaPage() {
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null);
 
-  // Recálculo dinámico de totales y cuadre
   useEffect(() => {
     const totalP = Number(form.adultos || 0) + Number(form.ninos || 0);
     const totalV = Number(form.venta_entradas || 0) + Number(form.venta_tienda || 0);
@@ -130,7 +129,7 @@ export default function BoleteriaPage() {
 
       const guardado = data && data[0] ? data[0] : payload;
       setUltimoCierre(guardado);
-      setMensaje({ tipo: 'exito', texto: `Cierre registrado con éxito bajo Folio #${guardado.id || 'NUEVO'}` });
+      setMensaje({ tipo: 'exito', texto: `Cierre registrado con éxito bajo Folio #${guardado.id || '1'}` });
 
       cargarHistorial();
     } catch (err: any) {
@@ -147,29 +146,41 @@ export default function BoleteriaPage() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       
-      {/* ========================================================= */}
-      {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL (VISIBLE SOLO AL IMPRIMIR) */}
-      {/* ========================================================= */}
+      {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL (SOLO VISIBLE AL IMPRIMIR) */}
       <div className="hidden print:block font-sans text-black p-4 max-w-2xl mx-auto bg-white">
-        <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-start">
-          <div>
-            <h1 className="text-xl font-black tracking-tight uppercase">Parque Acuario Puyehue</h1>
-            <p className="text-xs text-slate-600 font-semibold">Comprobante de Arqueo y Cierre Diario de Boletería</p>
-            <p className="text-[10px] text-slate-500">Ruta 215 Km 48 • Entre Lagos, Puyehue</p>
+        
+        <div className="border-b-2 border-slate-900 pb-4 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="relative w-36 h-14">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img 
+                src="/acuario.png" 
+                alt="Parque Acuario Puyehue" 
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div>
+              <h1 className="text-lg font-black tracking-tight text-slate-900 leading-tight uppercase">
+                Acta de Arqueo y Cierre Diario
+              </h1>
+              <p className="text-xs text-slate-600 font-medium">Boletería • Control de Operaciones y Afluencia</p>
+              <p className="text-[10px] text-slate-500">Ruta 215 Km 48 • Entre Lagos, Puyehue</p>
+            </div>
           </div>
-          <div className="text-right border border-slate-300 p-2 rounded">
-            <div className="text-[10px] uppercase font-bold text-slate-500">Folio Registro</div>
-            <div className="text-base font-mono font-black text-slate-900">
-              #{ultimoCierre?.id || ultimoCierre?.folio || 'BORRADOR'}
+
+          <div className="text-center border-2 border-slate-900 px-4 py-2 rounded bg-slate-50 min-w-[120px]">
+            <div className="text-[9px] uppercase font-black tracking-widest text-slate-500">Folio N°</div>
+            <div className="text-xl font-mono font-black text-slate-950">
+              #{ultimoCierre?.id || ultimoCierre?.folio || '1'}
             </div>
           </div>
         </div>
 
         {/* Metadatos */}
-        <div className="grid grid-cols-3 gap-2 text-xs border border-slate-200 p-2.5 mb-4 bg-slate-50 rounded">
-          <div><span className="font-bold text-slate-600">Fecha:</span> {form.fecha}</div>
-          <div><span className="font-bold text-slate-600">Turno:</span> {form.turno}</div>
-          <div><span className="font-bold text-slate-600">Responsable:</span> {form.cajero}</div>
+        <div className="grid grid-cols-3 gap-2 text-xs border border-slate-300 p-2.5 mb-4 bg-slate-50 rounded">
+          <div><span className="font-bold text-slate-700">Fecha:</span> {form.fecha}</div>
+          <div><span className="font-bold text-slate-700">Turno:</span> {form.turno}</div>
+          <div><span className="font-bold text-slate-700">Responsable:</span> {form.cajero}</div>
         </div>
 
         {/* Afluencia */}
@@ -208,15 +219,15 @@ export default function BoleteriaPage() {
             <tbody>
               <tr className="border-b border-slate-200">
                 <td className="p-1.5">Boletería / Entradas</td>
-                <td className="p-1.5 text-right font-mono">${form.venta_entradas.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.venta_entradas).toLocaleString('es-CL')}</td>
               </tr>
               <tr className="border-b border-slate-200">
                 <td className="p-1.5">Tienda / Souvenirs</td>
-                <td className="p-1.5 text-right font-mono">${form.venta_tienda.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.venta_tienda).toLocaleString('es-CL')}</td>
               </tr>
               <tr className="font-bold bg-slate-50">
                 <td className="p-1.5">Total Venta</td>
-                <td className="p-1.5 text-right font-mono">${form.total_bruto.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.total_bruto).toLocaleString('es-CL')}</td>
               </tr>
             </tbody>
           </table>
@@ -231,19 +242,19 @@ export default function BoleteriaPage() {
             <tbody>
               <tr className="border-b border-slate-200">
                 <td className="p-1.5">Efectivo Rendido</td>
-                <td className="p-1.5 text-right font-mono">${form.efectivo.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.efectivo).toLocaleString('es-CL')}</td>
               </tr>
               <tr className="border-b border-slate-200">
                 <td className="p-1.5">Vouchers POS (Transbank)</td>
-                <td className="p-1.5 text-right font-mono">${form.transbank.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.transbank).toLocaleString('es-CL')}</td>
               </tr>
               <tr className="border-b border-slate-200">
                 <td className="p-1.5">Transferencias Bancarias</td>
-                <td className="p-1.5 text-right font-mono">${form.transferencias.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.transferencias).toLocaleString('es-CL')}</td>
               </tr>
               <tr className="font-bold bg-slate-50">
                 <td className="p-1.5">Total Arqueado</td>
-                <td className="p-1.5 text-right font-mono">${form.total_declarado.toLocaleString('es-CL')}</td>
+                <td className="p-1.5 text-right font-mono">${Number(form.total_declarado).toLocaleString('es-CL')}</td>
               </tr>
             </tbody>
           </table>
@@ -251,20 +262,19 @@ export default function BoleteriaPage() {
 
         {/* Balance */}
         <div className={`p-2.5 rounded border text-xs flex justify-between items-center mb-4 ${form.diferencia === 0 ? 'bg-slate-50 border-slate-300' : 'bg-red-50 border-red-300 text-red-900 font-bold'}`}>
-          <span>Diferencia de Cuadre:</span>
+          <span className="font-bold">Diferencia de Cuadre:</span>
           <span className="font-mono text-sm font-black">
-            {form.diferencia === 0 ? '$0 (Cuadre Exacto)' : `$${form.diferencia.toLocaleString('es-CL')} (${form.diferencia > 0 ? 'Sobrante' : 'Faltante'})`}
+            {form.diferencia === 0 ? '$0 (Cuadre Exacto)' : `$${Number(form.diferencia).toLocaleString('es-CL')} (${form.diferencia > 0 ? 'Sobrante' : 'Faltante'})`}
           </span>
         </div>
 
-        {/* Observaciones */}
         {form.observaciones && (
           <div className="border border-slate-200 p-2 text-[11px] mb-8 bg-slate-50">
             <span className="font-bold">Observaciones:</span> {form.observaciones}
           </div>
         )}
 
-        {/* Firmas de Responsabilidad */}
+        {/* Firmas */}
         <div className="grid grid-cols-2 gap-12 mt-12 pt-6 text-center text-xs">
           <div>
             <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">{form.cajero}</div>
@@ -277,9 +287,7 @@ export default function BoleteriaPage() {
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* 2. FORMULARIO EN PANTALLA (SE OCULTA COMPLETAMENTE AL IMPRIMIR) */}
-      {/* ========================================================= */}
+      {/* 2. PANTALLA WEB NORMAL */}
       <div className="print:hidden max-w-4xl mx-auto space-y-6">
         
         <div className="flex items-center justify-between">
@@ -319,7 +327,7 @@ export default function BoleteriaPage() {
                 onClick={handlePrint}
                 className="inline-flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition"
               >
-                <Printer className="w-4 h-4" /> Reimprimir Último Cierre
+                <Printer className="w-4 h-4" /> Reimprimir Folio #{ultimoCierre.id}
               </button>
             )}
           </div>
@@ -363,7 +371,6 @@ export default function BoleteriaPage() {
               </div>
             </div>
 
-            {/* Afluencia */}
             <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-700/60 space-y-3">
               <span className="text-xs uppercase font-bold text-sky-400 tracking-wider">Afluencia de Visitantes</span>
               <div className="grid grid-cols-3 gap-4">
@@ -401,7 +408,6 @@ export default function BoleteriaPage() {
               </div>
             </div>
 
-            {/* Ventas & Arqueo */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-700/60 space-y-3">
                 <span className="text-xs uppercase font-bold text-teal-400 tracking-wider">Ventas Brutas ($ CLP)</span>
@@ -472,7 +478,6 @@ export default function BoleteriaPage() {
               </div>
             </div>
 
-            {/* Balance de cuadre */}
             <div className={`p-3 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-semibold ${form.diferencia === 0 ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300' : 'bg-rose-950/40 border-rose-500/30 text-rose-300'}`}>
               <span>Balance de Cuadre:</span>
               <span className="font-mono font-bold">
@@ -502,7 +507,6 @@ export default function BoleteriaPage() {
           </form>
         </div>
 
-        {/* Historial rápido */}
         {historial.length > 0 && (
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
             <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Cierres de Hoy ({hoy})</h3>
