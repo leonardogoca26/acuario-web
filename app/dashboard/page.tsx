@@ -11,12 +11,19 @@ import {
   Snowflake, 
   Layers, 
   ArrowLeft,
-  Calendar
+  Calendar,
+  RotateCcw
 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardPage() {
+  const hoy = new Date().toISOString().split('T')[0];
+  const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano' | 'Invierno'>('Todas');
+  const [fechaDesde, setFechaDesde] = useState(inicioMes);
+  const [fechaHasta, setFechaHasta] = useState(hoy);
+  const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
   const [metricas, setMetricas] = useState({
@@ -36,7 +43,7 @@ export default function DashboardPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. Consultar Boletería
+      // 1. Boletería
       let queryBoleteria = supabase
         .from('boleteria')
         .select('*')
@@ -45,10 +52,14 @@ export default function DashboardPage() {
       if (filtroTemporada !== 'Todas') {
         queryBoleteria = queryBoleteria.eq('temporada', filtroTemporada);
       }
+      if (aplicarFechas) {
+        if (fechaDesde) queryBoleteria = queryBoleteria.gte('fecha', fechaDesde);
+        if (fechaHasta) queryBoleteria = queryBoleteria.lte('fecha', fechaHasta);
+      }
 
       const { data: dataBoleteria } = await queryBoleteria;
 
-      // 2. Consultar Convenios
+      // 2. Convenios
       let queryConvenios = supabase
         .from('convenios')
         .select('*');
@@ -56,21 +67,29 @@ export default function DashboardPage() {
       if (filtroTemporada !== 'Todas') {
         queryConvenios = queryConvenios.eq('temporada', filtroTemporada);
       }
+      if (aplicarFechas) {
+        if (fechaDesde) queryConvenios = queryConvenios.gte('fecha', fechaDesde);
+        if (fechaHasta) queryConvenios = queryConvenios.lte('fecha', fechaHasta);
+      }
 
       const { data: dataConvenios } = await queryConvenios;
 
-      // 3. Consultar Egresos (si la tabla existe)
+      // 3. Egresos
       let totalGastos = 0;
       try {
-        const { data: dataEgresos } = await supabase.from('egresos').select('*');
+        let queryEgresos = supabase.from('egresos').select('*');
+        if (aplicarFechas) {
+          if (fechaDesde) queryEgresos = queryEgresos.gte('fecha', fechaDesde);
+          if (fechaHasta) queryEgresos = queryEgresos.lte('fecha', fechaHasta);
+        }
+        const { data: dataEgresos } = await queryEgresos;
         if (dataEgresos) {
           totalGastos = dataEgresos.reduce((acc, curr) => acc + Number(curr.monto || 0), 0);
         }
       } catch (e) {
-        console.warn('Tabla egresos no disponible aún');
+        console.warn('Tabla egresos no disponible');
       }
 
-      // Cálculos Boletería
       const totalVentaBoleteria = (dataBoleteria || []).reduce(
         (acc, item) => acc + Number(item.total_bruto || 0), 0
       );
@@ -78,7 +97,6 @@ export default function DashboardPage() {
         (acc, item) => acc + Number(item.total_personas || 0), 0
       );
 
-      // Cálculos Convenios
       const totalVentaConvenios = (dataConvenios || []).reduce(
         (acc, item) => acc + Number(item.total_facturado || 0), 0
       );
@@ -103,7 +121,6 @@ export default function DashboardPage() {
         margenOperacional: margen
       });
 
-      // Últimos movimientos unificados
       const movimientosBoleteria = (dataBoleteria || []).map(b => ({
         tipo: 'Boletería',
         detalle: `Turno ${b.turno} (#${b.id})`,
@@ -123,8 +140,7 @@ export default function DashboardPage() {
       }));
 
       const unificados = [...movimientosBoleteria, ...movimientosConvenios]
-        .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
-        .slice(0, 8);
+        .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
       setUltimosMovimientos(unificados);
 
@@ -137,13 +153,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     cargarDatos();
-  }, [filtroTemporada]);
+  }, [filtroTemporada, fechaDesde, fechaHasta, aplicarFechas]);
+
+  const resetFechas = () => {
+    setFechaDesde('');
+    setFechaHasta('');
+    setAplicarFechas(false);
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera y Selector de Temporada */}
+        {/* Cabecera */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -153,8 +175,8 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-400">Consolidado general de recaudación, estacionalidad y público</p>
           </div>
 
-          {/* Filtro de Temporada */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+          {/* Selector de Temporada */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold self-start sm:self-auto">
             <button
               onClick={() => setFiltroTemporada('Todas')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Todas' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
@@ -176,9 +198,52 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Barra de Filtro de Fechas */}
+        <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-300 uppercase tracking-wider">
+            <Calendar className="w-4 h-4 text-sky-400" />
+            <span>Rango de Consulta:</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400">Desde:</label>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => {
+                  setFechaDesde(e.target.value);
+                  setAplicarFechas(true);
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400">Hasta:</label>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => {
+                  setFechaHasta(e.target.value);
+                  setAplicarFechas(true);
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+              />
+            </div>
+
+            <button
+              onClick={resetFechas}
+              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
+              title="Quitar límite de fechas"
+            >
+              <RotateCcw className="w-3 h-3" /> Histórico Completo
+            </button>
+          </div>
+        </div>
+
         {/* Tarjetas Principales */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          
           <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-teal-400">Ingresos Totales</span>
@@ -248,20 +313,21 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-
         </div>
 
-        {/* Movimientos Recientes */}
+        {/* Tabla Detallada */}
         <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
           <div className="flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Últimos Registros del Sistema</h3>
-            <span className="text-xs text-slate-400 font-medium">Filtrado por: {filtroTemporada}</span>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Detalle de Operaciones en el Periodo</h3>
+            <span className="text-xs text-slate-400 font-medium">
+              {ultimosMovimientos.length} registros encontrados
+            </span>
           </div>
 
           {cargando ? (
             <div className="text-center py-8 text-xs text-slate-400">Consultando base de datos...</div>
           ) : ultimosMovimientos.length === 0 ? (
-            <div className="text-center py-8 text-xs text-slate-400">No hay registros cargados para esta temporada.</div>
+            <div className="text-center py-8 text-xs text-slate-400">No hay registros para este rango de fechas o temporada seleccionada.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
