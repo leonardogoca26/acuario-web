@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Printer, AlertTriangle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Printer, AlertTriangle, CheckCircle2, ArrowLeft, Ban } from 'lucide-react';
 import Link from 'next/link';
 
 interface CierreCaja {
@@ -139,6 +139,25 @@ export default function BoleteriaPage() {
     }
   };
 
+  const handleAnular = async (id: number | string) => {
+    const confirmar = window.confirm(`¿Confirmas anular el Cierre de Folio #${id}? Quedará registrado como nulo sin eliminar el registro histórico.`);
+    if (!confirmar) return;
+
+    try {
+      const { error } = await supabase
+        .from('boleteria')
+        .update({ estado: 'anulado' })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setMensaje({ tipo: 'exito', texto: `Folio #${id} marcado como ANULADO correctamente.` });
+      cargarHistorial();
+    } catch (err: any) {
+      setMensaje({ tipo: 'error', texto: `Error al anular: ${err.message || 'Error de red'}` });
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -148,7 +167,6 @@ export default function BoleteriaPage() {
       
       {/* 1. DOCUMENTO DE IMPRESIÓN OFICIAL (SOLO VISIBLE AL IMPRIMIR) */}
       <div className="hidden print:block font-sans text-black p-4 max-w-2xl mx-auto bg-white">
-        
         <div className="border-b-2 border-slate-900 pb-4 mb-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="relative w-36 h-14">
@@ -507,32 +525,51 @@ export default function BoleteriaPage() {
           </form>
         </div>
 
+        {/* Historial diario con estado y botón de anulación */}
         {historial.length > 0 && (
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
-            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Cierres de Hoy ({hoy})</h3>
+            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Cierres Registrados Hoy ({hoy})</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
                 <thead className="border-b border-slate-700 text-slate-400">
                   <tr>
-                    <th className="py-2">Folio</th>
-                    <th className="py-2">Turno</th>
-                    <th className="py-2">Público</th>
-                    <th className="py-2">Venta Total</th>
-                    <th className="py-2">Diferencia</th>
+                    <th className="py-2 px-2">Folio</th>
+                    <th className="py-2 px-2">Turno</th>
+                    <th className="py-2 px-2">Público</th>
+                    <th className="py-2 px-2">Total Venta</th>
+                    <th className="py-2 px-2">Estado</th>
+                    <th className="py-2 px-2 text-right">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {historial.map((c) => (
-                    <tr key={c.id}>
-                      <td className="py-2 font-mono text-sky-400">#{c.id}</td>
-                      <td className="py-2">{c.turno}</td>
-                      <td className="py-2">{c.total_personas} pers.</td>
-                      <td className="py-2 font-mono text-white">${Number(c.total_bruto).toLocaleString('es-CL')}</td>
-                      <td className={`py-2 font-mono ${Number(c.diferencia) === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        ${Number(c.diferencia).toLocaleString('es-CL')}
-                      </td>
-                    </tr>
-                  ))}
+                  {historial.map((c) => {
+                    const esAnulado = c.estado === 'anulado';
+                    return (
+                      <tr key={c.id} className={esAnulado ? 'opacity-40 line-through bg-slate-900/30' : ''}>
+                        <td className="py-2 px-2 font-mono text-sky-400 font-bold">#{c.id}</td>
+                        <td className="py-2 px-2">{c.turno}</td>
+                        <td className="py-2 px-2">{c.total_personas} pers.</td>
+                        <td className="py-2 px-2 font-mono text-white">${Number(c.total_bruto).toLocaleString('es-CL')}</td>
+                        <td className="py-2 px-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${esAnulado ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}`}>
+                            {c.estado || 'activo'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          {!esAnulado && (
+                            <button
+                              type="button"
+                              onClick={() => handleAnular(c.id)}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 px-2 py-1 rounded transition border border-rose-900/40"
+                              title="Anular este registro de cierre"
+                            >
+                              <Ban className="w-3 h-3" /> Anular
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
