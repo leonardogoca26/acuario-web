@@ -1,103 +1,111 @@
 import Link from 'next/link';
-import { Ticket, Users, Receipt, BarChart3, ShieldCheck } from 'lucide-react';
+import { Ticket, Users, Receipt, BarChart3, Fish, ArrowRight, ShieldCheck } from 'lucide-react';
 
 export default function Home() {
   const modulos = [
     {
       titulo: 'Boletería Diaria',
-      descripcion: 'Registro de caja, visitantes por boleto general, cuadre de medios de pago y folios.',
+      descripcion: 'Arqueo de turnos, folios correlativos, cuadre de mesón por efectivo, POS o transferencias.',
       href: '/boleteria',
       icono: Ticket,
-      color: 'bg-blue-500',
-      badge: 'Cajeros & Turnos',
-      textColor: 'text-blue-600'
+      badge: 'Caja & Mesón',
+      badgeColor: 'bg-sky-100 text-sky-800',
+      iconColor: 'bg-sky-600 text-white',
+      borderHover: 'hover:border-sky-400'
     },
     {
       titulo: 'Convenios & Delegaciones',
-      descripcion: 'Control de afluencia de colegios, universidades, operadores turísticos y facturación a crédito.',
+      descripcion: 'Control de visitas para colegios, universidades, giras de estudio y operadores turísticos a crédito.',
       href: '/convenios',
       icono: Users,
-      color: 'bg-indigo-600',
-      badge: 'Dirección & Ventas',
-      textColor: 'text-indigo-600'
+      badge: 'Dirección Comercial',
+      badgeColor: 'bg-teal-100 text-teal-800',
+      iconColor: 'bg-teal-600 text-white',
+      borderHover: 'hover:border-teal-400'
     },
     {
-      titulo: 'Gastos & Egresos',
-      descripcion: 'Registro de compras, alimento fauna, mantención de filtros/bombas, sueldos y servicios.',
+      titulo: 'Egresos & Costos',
+      descripcion: 'Alimento fauna local, mantención de filtros, químicos de estanques, electricidad y nómina sin IVA.',
       href: '/egresos',
       icono: Receipt,
-      color: 'bg-rose-600',
       badge: 'Administración',
-      textColor: 'text-rose-600'
+      badgeColor: 'bg-amber-100 text-amber-900',
+      iconColor: 'bg-amber-600 text-white',
+      borderHover: 'hover:border-amber-400'
     },
     {
       titulo: 'Dashboard Ejecutivo',
-      descripcion: 'Reportería financiera general, afluencia consolidada, ticket promedio y márgenes.',
+      descripcion: 'Consolidado financiero general, afluencia total mensual, ticket promedio y margen operacional.',
       href: '/dashboard',
       icono: BarChart3,
-      color: 'bg-emerald-600',
-      badge: 'Gerencia General',
-      textColor: 'text-emerald-600'
+      badge: 'Gerencia',
+      badgeColor: 'bg-emerald-100 text-emerald-800',
+      iconColor: 'bg-emerald-600 text-white',
+      borderHover: 'hover:border-emerald-400'
     }
   ];
 
   return (
-    <main className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center px-4 py-12 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto w-full space-y-10">
+    <main className="min-h-[calc(100vh-61px)] bg-slate-50 flex flex-col justify-center px-4 py-12 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto w-full space-y-8">
         
-        {/* Cabecera Corporativa */}
+        {/* Encabezado Corporativo estilo acuariopuyehue.cl */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1 rounded-full text-xs font-medium text-cyan-400">
-            <ShieldCheck className="w-4 h-4" /> Plataforma de Gestión Operativa & Financiera
+          <div className="inline-flex items-center gap-2 bg-sky-100/80 border border-sky-200 px-3.5 py-1 rounded-full text-xs font-bold text-sky-800">
+            <Fish className="w-4 h-4 text-amber-500 fill-amber-400" />
+            Acuario Puyehue • Entre Lagos
           </div>
-          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
-            Aqua<span className="text-cyan-400">Control</span>
+          
+          <h1 className="text-3xl sm:text-4xl font-black text-sky-950 tracking-tight">
+            Sistema de Control Operacional
           </h1>
-          <p className="text-slate-400 text-sm sm:text-base max-w-xl mx-auto">
-            Selecciona el módulo correspondiente a tu rol u operación del día.
+          
+          <p className="text-slate-600 text-sm max-w-lg mx-auto leading-relaxed">
+            Plataforma centralizada para la cuadratura de caja diaria, seguimiento de delegaciones escolares y control de costos de la fundación.
           </p>
         </div>
 
-        {/* Tarjetas de Navegación */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Tarjetas de Acceso */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {modulos.map((m) => {
             const Icon = m.icono;
             return (
               <Link
                 key={m.href}
                 href={m.href}
-                className="group relative bg-slate-800/60 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-800 rounded-2xl p-6 transition-all duration-200 shadow-lg hover:shadow-cyan-500/10 flex flex-col justify-between"
+                className={`group bg-white border border-slate-200/80 ${m.borderHover} rounded-xl p-6 transition-all duration-200 shadow-sm hover:shadow-md flex flex-col justify-between`}
               >
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className={`p-3 rounded-xl ${m.color} text-white shadow-md`}>
-                      <Icon className="w-6 h-6" />
+                    <div className={`p-2.5 rounded-lg ${m.iconColor} shadow-sm group-hover:scale-105 transition`}>
+                      <Icon className="w-5 h-5" />
                     </div>
-                    <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-400 bg-slate-900/60 border border-slate-700 px-2.5 py-1 rounded-full">
+                    <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${m.badgeColor}`}>
                       {m.badge}
                     </span>
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-white group-hover:text-cyan-400 transition">
+                    <h2 className="text-lg font-bold text-slate-900 group-hover:text-sky-700 transition">
                       {m.titulo}
                     </h2>
-                    <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
                       {m.descripcion}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center text-xs font-bold text-slate-300 group-hover:text-cyan-400 gap-1">
-                  Acceder al módulo <span className="transition-transform group-hover:translate-x-1">→</span>
+                <div className="mt-5 flex items-center text-xs font-bold text-sky-600 group-hover:text-sky-800 gap-1 transition">
+                  Abrir módulo <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
                 </div>
               </Link>
             );
           })}
         </div>
 
-        {/* Footer simple */}
-        <div className="text-center text-xs text-slate-500 pt-6 border-t border-slate-800">
-          AquaControl v1.0 • Sistema Centralizado de Parque Acuario
+        {/* Pie con distintivo de seguridad */}
+        <div className="flex items-center justify-center gap-2 text-slate-400 text-xs pt-4 border-t border-slate-200">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>Datos sincronizados en tiempo real con la nube</span>
         </div>
 
       </div>
