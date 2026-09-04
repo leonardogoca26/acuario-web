@@ -3,21 +3,21 @@ import Image from 'next/image';
 
 export default function Navbar() {
   return (
-    <header className="bg-slate-900/95 backdrop-blur-md text-white sticky top-0 z-50 border-b border-sky-950/40 shadow-md">
+    <header className="bg-slate-950/90 backdrop-blur-md text-white sticky top-0 z-50 border-b border-sky-900/40 shadow-md">
       <div className="max-w-6xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-4">
         
-        {/* Logo Real Parque Acuario Puyehue */}
+        {/* Logo Flotante Transparente */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="relative h-12 w-32 sm:w-36 bg-white/95 rounded-lg px-2 py-1 shadow-sm flex items-center justify-center border border-white/20 group-hover:bg-white transition">
+          <div className="relative h-11 w-36 flex items-center justify-center">
             <Image 
               src="/acuario.png" 
               alt="Parque Acuario Puyehue" 
               fill
-              className="object-contain p-1"
+              className="object-contain"
               priority
             />
           </div>
-          <div className="hidden sm:block border-l border-slate-700 pl-3">
+          <div className="hidden sm:block border-l border-slate-700/80 pl-3">
             <div className="text-[11px] uppercase tracking-wider font-bold text-sky-400">
               Control Operativo
             </div>
@@ -27,7 +27,7 @@ export default function Navbar() {
           </div>
         </Link>
 
-        {/* Enlaces */}
+        {/* Enlaces de Navegación */}
         <nav className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium">
           <Link href="/boleteria" className="px-3 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
             Boletería
