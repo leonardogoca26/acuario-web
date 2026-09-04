@@ -14,18 +14,25 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  PieChart,
   DollarSign,
   AlertCircle,
   Clock,
-  Briefcase,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RotateCcw,
+  List
 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardUnificadoPage() {
+  const hoyStr = new Date().toISOString().split('T')[0];
+  const inicioMesStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+
   const [seccion, setSeccion] = useState<'operativo' | 'graficas' | 'resultados' | 'caja' | 'cobranza'>('operativo');
+  const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano' | 'Invierno'>('Todas');
+  const [fechaDesde, setFechaDesde] = useState(inicioMesStr);
+  const [fechaHasta, setFechaHasta] = useState(hoyStr);
+  const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
   // Calendario
@@ -38,7 +45,7 @@ export default function DashboardUnificadoPage() {
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
 
-  // Datos fijos de referencia para proyecciones
+  // Datos fijos de referencia para proyecciones de caja
   const saldoDisponibleHoy = 8450000;
   const compromisosMes = [
     { cat: 'Proveedores', monto: 2300000, desc: 'Alimento de fauna, mantención acuarios' },
@@ -48,20 +55,27 @@ export default function DashboardUnificadoPage() {
     { cat: 'Otros', monto: 350000, desc: 'Servicios básicos, seguros e imprevistos' },
   ];
 
-  const totalCompromisos = compromisosMes.reduce((acc, c) => acc + c.monto, 0); // 6.000.000
+  const totalCompromisos = compromisosMes.reduce((acc, c) => acc + c.monto, 0);
   const cobrosEsperadosProximos30Dias = 4200000;
-  const cajaProyectada = saldoDisponibleHoy - totalCompromisos + cobrosEsperadosProximos30Dias; // 6.650.000
-  const cajaSinCobros = saldoDisponibleHoy - totalCompromisos; // 2.450.000
+  const cajaProyectada = saldoDisponibleHoy - totalCompromisos + cobrosEsperadosProximos30Dias;
 
   const cargarDatos = async () => {
     setCargando(true);
     try {
       let queryBol = supabase.from('boleteria').select('*').neq('estado', 'anulado');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
+      if (aplicarFechas) {
+        if (fechaDesde) queryBol = queryBol.gte('fecha', fechaDesde);
+        if (fechaHasta) queryBol = queryBol.lte('fecha', fechaHasta);
+      }
       const { data: dataBol } = await queryBol;
 
       let queryConv = supabase.from('convenios').select('*');
       if (filtroTemporada !== 'Todas') queryConv = queryConv.eq('temporada', filtroTemporada);
+      if (aplicarFechas) {
+        if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
+        if (fechaHasta) queryConv = queryConv.lte('fecha', fechaHasta);
+      }
       const { data: dataConv } = await queryConv;
 
       const mBol = (dataBol || []).map(b => ({
@@ -95,7 +109,13 @@ export default function DashboardUnificadoPage() {
 
   useEffect(() => {
     cargarDatos();
-  }, [filtroTemporada]);
+  }, [filtroTemporada, fechaDesde, fechaHasta, aplicarFechas]);
+
+  const resetFechas = () => {
+    setFechaDesde('');
+    setFechaHasta('');
+    setAplicarFechas(false);
+  };
 
   // Cálculos Operativos
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
@@ -137,7 +157,7 @@ export default function DashboardUnificadoPage() {
   const tramo61_90 = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
   const tramo90Mas = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
 
-  // Datos simulados para Estado de Resultados (P&L)
+  // Datos P&L
   const ventasMesActual = 12450000;
   const ventasMesAnterior = 10800000;
   const ventasMesAnoAnterior = 9500000;
@@ -145,16 +165,15 @@ export default function DashboardUnificadoPage() {
   const varMesAnterior = (((ventasMesActual - ventasMesAnterior) / ventasMesAnterior) * 100).toFixed(1);
   const varAnoAnterior = (((ventasMesActual - ventasMesAnoAnterior) / ventasMesAnoAnterior) * 100).toFixed(1);
 
-  const costosDirectos = 4200000; // Alimento, insumos veterinarios, guías turnos
-  const margenBruto = ventasMesActual - costosDirectos; // 8.250.000
-  const gastosAdminVentas = 3600000; // Nómina fija, contabilidad, marketing, seguros
-  const resultadoOperacional = margenBruto - gastosAdminVentas; // 4.650.000
-  const gastosFinancieros = 450000; // Intereses créditos
-  const resultadoAntesImp = resultadoOperacional - gastosFinancieros; // 4.200.000
-  const impuestoRenta = Math.round(resultadoAntesImp * 0.27); // 1.134.000
-  const utilidadNeta = resultadoAntesImp - impuestoRenta; // 3.066.000
+  const costosDirectos = 4200000;
+  const margenBruto = ventasMesActual - costosDirectos;
+  const gastosAdminVentas = 3600000;
+  const resultadoOperacional = margenBruto - gastosAdminVentas;
+  const gastosFinancieros = 450000;
+  const resultadoAntesImp = resultadoOperacional - gastosFinancieros;
+  const impuestoRenta = Math.round(resultadoAntesImp * 0.27);
+  const utilidadNeta = resultadoAntesImp - impuestoRenta;
 
-  // 12 Meses para Gráficos
   const serie12Meses = [
     { mes: 'Oct', ventas: 7200000, utilidad: 1800000, gastos: 5400000 },
     { mes: 'Nov', ventas: 8900000, utilidad: 2300000, gastos: 6600000 },
@@ -174,7 +193,7 @@ export default function DashboardUnificadoPage() {
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera */}
+        {/* Cabecera Principal */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -206,7 +225,7 @@ export default function DashboardUnificadoPage() {
           </div>
         </div>
 
-        {/* SUB-MENÚ DE NAVEGACIÓN PRINCIPAL */}
+        {/* SUB-MENÚ DE NAVEGACIÓN */}
         <div className="flex overflow-x-auto gap-2 p-1.5 bg-slate-950/80 border border-slate-800 rounded-2xl">
           <button
             onClick={() => setSeccion('operativo')}
@@ -241,108 +260,221 @@ export default function DashboardUnificadoPage() {
         </div>
 
         {/* ========================================================= */}
-        {/* VISTA 1: EJECUTIVO & OPERACIONAL (CALENDARIO + TARJETAS) */}
+        {/* VISTA 1: EJECUTIVO & OPERACIONAL (FILTRO FECHAS + CALENDARIO) */}
         {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
+            
+            {/* Barra de Filtro de Fechas y Selector de Modo */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                  <CalendarIcon className="w-4 h-4 text-sky-400" /> Rango:
+                </span>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Desde:</span>
+                  <input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={(e) => {
+                      setFechaDesde(e.target.value);
+                      setAplicarFechas(true);
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Hasta:</span>
+                  <input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={(e) => {
+                      setFechaHasta(e.target.value);
+                      setAplicarFechas(true);
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
+                  />
+                </div>
+
+                <button
+                  onClick={resetFechas}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
+                  title="Ver todos los registros históricos"
+                >
+                  <RotateCcw className="w-3 h-3" /> Ver Todo
+                </button>
+              </div>
+
+              {/* Selector entre vista Calendario y vista Lista */}
+              <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+                <button
+                  onClick={() => setVistaOperativa('calendario')}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'calendario' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <CalendarIcon className="w-3.5 h-3.5" /> Calendario
+                </button>
+                <button
+                  onClick={() => setVistaOperativa('lista')}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'lista' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <List className="w-3.5 h-3.5" /> Lista
+                </button>
+              </div>
+            </div>
+
+            {/* Tarjetas de Totales del Período */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Total</span>
+                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Período</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${totalIngresos.toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Ventas mesón y convenios</div>
+                <div className="text-[10px] text-slate-400 mt-1">{movimientos.length} registros cargados</div>
               </div>
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Público Total</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Afluencia registrada</div>
+                <div className="text-[10px] text-slate-400 mt-1">Afluencia en este rango</div>
               </div>
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Gasto Medio</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${ticketProm.toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Ticket medio por visitante</div>
+                <div className="text-[10px] text-slate-400 mt-1">Por visitante ingresado</div>
               </div>
             </div>
 
-            {/* Calendario Mensual */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
-                <h3 className="text-sm font-black text-white capitalize">
-                  {nombresMeses[mesActual]} {anioActual}
-                </h3>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      if (mesActual === 0) { setMesActual(11); setAnioActual(anioActual - 1); }
-                      else { setMesActual(mesActual - 1); }
-                      setDiaSeleccionado(null);
-                    }}
-                    className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (mesActual === 11) { setMesActual(0); setAnioActual(anioActual + 1); }
-                      else { setMesActual(mesActual + 1); }
-                      setDiaSeleccionado(null);
-                    }}
-                    className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+            {/* 1.1 VISTA CALENDARIO MENSUAL */}
+            {vistaOperativa === 'calendario' && (
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+                <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
+                  <h3 className="text-sm font-black text-white capitalize">
+                    {nombresMeses[mesActual]} {anioActual}
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        if (mesActual === 0) { setMesActual(11); setAnioActual(anioActual - 1); }
+                        else { setMesActual(mesActual - 1); }
+                        setDiaSeleccionado(null);
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (mesActual === 11) { setMesActual(0); setAnioActual(anioActual + 1); }
+                        else { setMesActual(mesActual + 1); }
+                        setDiaSeleccionado(null);
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold text-slate-400 mb-2 uppercase">
+                  <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1.5">
+                  {Array.from({ length: desfaseSemana }).map((_, i) => (
+                    <div key={`emp-${i}`} className="min-h-[75px] bg-slate-900/30 rounded-xl" />
+                  ))}
+
+                  {Array.from({ length: diasEnMes }).map((_, i) => {
+                    const dNum = i + 1;
+                    const fStr = `${anioActual}-${(mesActual + 1).toString().padStart(2, '0')}-${dNum.toString().padStart(2, '0')}`;
+                    const dataD = mapaPorFecha[fStr];
+                    const hasV = Boolean(dataD && dataD.monto > 0);
+                    const isSel = diaSeleccionado === fStr;
+
+                    return (
+                      <div
+                        key={fStr}
+                        onClick={() => hasV && setDiaSeleccionado(fStr)}
+                        className={`min-h-[75px] p-2 rounded-xl border flex flex-col justify-between transition ${
+                          isSel ? 'border-sky-400 bg-sky-950/60 ring-2 ring-sky-500/40' : hasV ? 'border-slate-700 bg-slate-900 hover:border-sky-500 cursor-pointer' : 'border-slate-800/60 bg-slate-900/40 opacity-60'
+                        }`}
+                      >
+                        <span className={`text-xs font-bold ${hasV ? 'text-white' : 'text-slate-500'}`}>{dNum}</span>
+                        {hasV ? (
+                          <div>
+                            <div className="text-[11px] font-mono font-bold text-teal-300">${Math.round(dataD.monto).toLocaleString('es-CL')}</div>
+                            <div className="text-[10px] text-slate-400">{dataD.personas} p.</div>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-600 italic">-</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold text-slate-400 mb-2 uppercase">
-                <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
-              </div>
-
-              <div className="grid grid-cols-7 gap-1.5">
-                {Array.from({ length: desfaseSemana }).map((_, i) => (
-                  <div key={`emp-${i}`} className="min-h-[75px] bg-slate-900/30 rounded-xl" />
-                ))}
-
-                {Array.from({ length: diasEnMes }).map((_, i) => {
-                  const dNum = i + 1;
-                  const fStr = `${anioActual}-${(mesActual + 1).toString().padStart(2, '0')}-${dNum.toString().padStart(2, '0')}`;
-                  const dataD = mapaPorFecha[fStr];
-                  const hasV = Boolean(dataD && dataD.monto > 0);
-                  const isSel = diaSeleccionado === fStr;
-
-                  return (
-                    <div
-                      key={fStr}
-                      onClick={() => hasV && setDiaSeleccionado(fStr)}
-                      className={`min-h-[75px] p-2 rounded-xl border flex flex-col justify-between transition ${
-                        isSel ? 'border-sky-400 bg-sky-950/60 ring-2 ring-sky-500/40' : hasV ? 'border-slate-700 bg-slate-900 hover:border-sky-500 cursor-pointer' : 'border-slate-800/60 bg-slate-900/40 opacity-60'
-                      }`}
-                    >
-                      <span className={`text-xs font-bold ${hasV ? 'text-white' : 'text-slate-500'}`}>{dNum}</span>
-                      {hasV ? (
-                        <div>
-                          <div className="text-[11px] font-mono font-bold text-teal-300">${Math.round(dataD.monto).toLocaleString('es-CL')}</div>
-                          <div className="text-[10px] text-slate-400">{dataD.personas} p.</div>
-                        </div>
+            {/* 1.2 VISTA LISTA DETALLADA */}
+            {vistaOperativa === 'lista' && (
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                  Movimientos en el Rango Seleccionado ({movimientos.length})
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left text-slate-300">
+                    <thead className="border-b border-slate-700 text-slate-400">
+                      <tr>
+                        <th className="py-2.5 px-2">Tipo</th>
+                        <th className="py-2.5 px-2">Fecha</th>
+                        <th className="py-2.5 px-2">Temporada</th>
+                        <th className="py-2.5 px-2">Detalle / Turno</th>
+                        <th className="py-2.5 px-2">Público</th>
+                        <th className="py-2.5 px-2 text-right">Monto Recaudado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {movimientos.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-6 text-center text-slate-500 italic">
+                            No hay datos para las fechas o temporada indicada.
+                          </td>
+                        </tr>
                       ) : (
-                        <span className="text-[10px] text-slate-600 italic">-</span>
+                        movimientos.map((m, idx) => (
+                          <tr key={idx} className="hover:bg-slate-800/40">
+                            <td className="py-2.5 px-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${m.tipo === 'Boletería' ? 'bg-sky-950 text-sky-300 border border-sky-800' : 'bg-teal-950 text-teal-300 border border-teal-800'}`}>
+                                {m.tipo}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2 font-mono">{m.fecha}</td>
+                            <td className="py-2.5 px-2">{m.temporada}</td>
+                            <td className="py-2.5 px-2 font-semibold text-white">{m.detalle}</td>
+                            <td className="py-2.5 px-2 font-mono">{m.personas} pers.</td>
+                            <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-300">
+                              ${m.monto.toLocaleString('es-CL')}
+                            </td>
+                          </tr>
+                        ))
                       )}
-                    </div>
-                  );
-                })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
 
-            {diaSeleccionado && (
+            {/* Detalle del día al hacer click en el calendario */}
+            {diaSeleccionado && vistaOperativa === 'calendario' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-3">
-                  <span className="text-xs font-bold uppercase text-sky-400">Detalle: {diaSeleccionado}</span>
-                  <button onClick={() => setDiaSeleccionado(null)} className="text-xs text-slate-400">Cerrar</button>
+                  <span className="text-xs font-bold uppercase text-sky-400">Detalle del Día: {diaSeleccionado}</span>
+                  <button onClick={() => setDiaSeleccionado(null)} className="text-xs text-slate-400 hover:text-white">Cerrar</button>
                 </div>
                 <div className="space-y-2">
                   {(mapaPorFecha[diaSeleccionado]?.registros || []).map((r, i) => (
@@ -357,11 +489,12 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
             )}
+
           </div>
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 2: GRÁFICAS GENERALES (ÚLTIMOS 12 MESES) */}
+        {/* VISTA 2: GRÁFICAS GENERALES */}
         {/* ========================================================= */}
         {seccion === 'graficas' && (
           <div className="space-y-6">
@@ -369,7 +502,7 @@ export default function DashboardUnificadoPage() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wider text-white">Ventas y Utilidad (Últimos 12 Meses)</h3>
-                  <p className="text-xs text-slate-400">Contraste directo entre volumen facturado y ganancia real en bolsillo</p>
+                  <p className="text-xs text-slate-400">Contraste entre volumen facturado y ganancia real en bolsillo</p>
                 </div>
                 <div className="flex items-center gap-4 text-xs font-semibold">
                   <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-500 inline-block" /> Ventas</span>
@@ -377,7 +510,6 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
 
-              {/* Barras visuales comparativas */}
               <div className="space-y-3">
                 {serie12Meses.map((m, idx) => {
                   const maxVenta = 25000000;
@@ -400,7 +532,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Gráfico 2: Ingresos vs Gastos Mensuales */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-1">Ingresos vs Gastos Totales</h3>
               <p className="text-xs text-slate-400 mb-6">Auditoría del costo operativo contra la facturación mensual</p>
@@ -426,12 +557,10 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 3: ESTADO DE RESULTADOS (P&L Y CASCADA FINANCIERA) */}
+        {/* VISTA 3: ESTADO DE RESULTADOS (P&L) */}
         {/* ========================================================= */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
-            
-            {/* Análisis comparativo de ventas */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
                 Análisis Comparativo de Facturación (Ventas)
@@ -445,7 +574,7 @@ export default function DashboardUnificadoPage() {
                 <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
                   <span className="text-[11px] text-slate-400 font-semibold uppercase">Mes Anterior</span>
                   <div className="text-xl font-mono font-black text-slate-300 mt-1">${ventasMesAnterior.toLocaleString('es-CL')}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">Base de comparación directa</div>
+                  <div className="text-[10px] text-slate-400 mt-1">Base de comparación</div>
                 </div>
                 <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
                   <span className="text-[11px] text-slate-400 font-semibold uppercase">Mismo Mes Año Anterior</span>
@@ -460,94 +589,47 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Estructura Formal de Estado de Resultados (P&L) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
-                Estado de Resultados Operacional (Mes en Curso)
+                Estado de Resultados Operacional (P&L)
               </h3>
               
               <div className="space-y-3 font-mono text-xs">
-                {/* 1. Ingresos */}
                 <div className="flex justify-between items-center py-2 border-b border-slate-800 text-sm font-bold text-white">
-                  <span className="font-sans">(=) Ingresos Operacionales (Ventas Mesón + Convenios)</span>
+                  <span className="font-sans">(=) Ingresos Operacionales</span>
                   <span className="text-teal-300">${ventasMesActual.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 2. Costos Directos */}
                 <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Costos Directos (Alimento peces/fauna, sueldos de turno)</span>
+                  <span className="font-sans">(-) Costos Directos (Alimento, sueldos operacionales)</span>
                   <span>-${costosDirectos.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 3. Margen Bruto */}
                 <div className="flex justify-between items-center py-2 border-y border-slate-700/80 bg-slate-900/60 px-3 rounded-lg font-bold text-sky-300">
                   <span className="font-sans">(=) MARGEN BRUTO</span>
                   <span>${margenBruto.toLocaleString('es-CL')} (66.3%)</span>
                 </div>
-
-                {/* 4. Gastos Adm y Ventas */}
                 <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Gastos de Administración, Operación Fija y Marketing</span>
+                  <span className="font-sans">(-) Gastos de Adm, Operación Fija y Marketing</span>
                   <span>-${gastosAdminVentas.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 5. Resultado Operacional */}
                 <div className="flex justify-between items-center py-2 border-y border-slate-700/80 bg-slate-900/60 px-3 rounded-lg font-bold text-amber-300">
                   <span className="font-sans">(=) RESULTADO OPERACIONAL (EBITDA)</span>
                   <span>${resultadoOperacional.toLocaleString('es-CL')} (37.3%)</span>
                 </div>
-
-                {/* 6. Gastos Financieros */}
                 <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Gastos Financieros e Intereses de Créditos</span>
+                  <span className="font-sans">(-) Gastos Financieros e Intereses</span>
                   <span>-${gastosFinancieros.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 7. Antes de Impuestos */}
                 <div className="flex justify-between items-center py-1.5 text-slate-200 pl-4 font-semibold">
                   <span className="font-sans">(=) Resultado Antes de Impuestos</span>
                   <span>${resultadoAntesImp.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 8. Provisión Impuestos */}
                 <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Provisión Impuesto a la Renta (27%)</span>
+                  <span className="font-sans">(-) Provisión Impuesto Renta (27%)</span>
                   <span>-${impuestoRenta.toLocaleString('es-CL')}</span>
                 </div>
-
-                {/* 9. Utilidad Neta */}
                 <div className="flex justify-between items-center py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300">
                   <span className="font-sans">(=) UTILIDAD NETA FINAL</span>
                   <span>${utilidadNeta.toLocaleString('es-CL')}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Cascada Visual de Rendimiento */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                Cascada de Retención de Efectivo: Ventas → Costos → Gastos → Utilidad
-              </h3>
-              <div className="grid grid-cols-4 gap-3 text-center text-xs">
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <div className="text-[10px] text-slate-400">Ventas</div>
-                  <div className="text-sm font-mono font-black text-white mt-1">100%</div>
-                  <div className="text-[11px] font-mono text-teal-300 mt-0.5">${(ventasMesActual / 1000000).toFixed(1)}M</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-rose-900/40">
-                  <div className="text-[10px] text-rose-400">Costos Directos</div>
-                  <div className="text-sm font-mono font-black text-rose-300 mt-1">-33.7%</div>
-                  <div className="text-[11px] font-mono text-rose-300 mt-0.5">-${(costosDirectos / 1000000).toFixed(1)}M</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-rose-900/40">
-                  <div className="text-[10px] text-rose-400">Gastos Adm & Fin</div>
-                  <div className="text-sm font-mono font-black text-rose-300 mt-1">-32.5%</div>
-                  <div className="text-[11px] font-mono text-rose-300 mt-0.5">-${((gastosAdminVentas + gastosFinancieros) / 1000000).toFixed(1)}M</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-emerald-500/40">
-                  <div className="text-[10px] text-emerald-400">Utilidad Neta</div>
-                  <div className="text-sm font-mono font-black text-emerald-300 mt-1">24.6%</div>
-                  <div className="text-[11px] font-mono text-emerald-300 mt-0.5">${(utilidadNeta / 1000000).toFixed(1)}M</div>
                 </div>
               </div>
             </div>
@@ -555,12 +637,10 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 4: CAJA & COMPROMISOS (PRÓXIMOS 30 DÍAS) */}
+        {/* VISTA 4: CAJA & COMPROMISOS */}
         {/* ========================================================= */}
         {seccion === 'caja' && (
           <div className="space-y-6">
-            
-            {/* Veredicto de Consultoría Financiera */}
             <div className="bg-rose-950/70 border border-rose-500/50 rounded-2xl p-5 shadow-xl flex items-start gap-4">
               <AlertCircle className="w-7 h-7 text-rose-400 shrink-0 mt-0.5" />
               <div>
@@ -568,29 +648,28 @@ export default function DashboardUnificadoPage() {
                   Diagnóstico Estratégico de Liquidez a 30 Días
                 </h4>
                 <p className="text-xs text-rose-200 mt-1 leading-relaxed">
-                  “No estás quebrado, pero si tus clientes no pagan antes del día 20 tendrás un déficit de caja operativo de <strong className="font-mono text-white underline font-black">$1.750.000</strong>. Tus compromisos ineludibles suman <strong>$6.000.000</strong> y tu caja base solo cubre <strong>$2.450.000</strong> post-egresos fijos sin cobranza activa.”
+                  “No estás quebrado, pero si tus clientes no pagan antes del día 20 tendrás un déficit de caja operativo de <strong className="font-mono text-white underline font-black">$1.750.000</strong>. Tus compromisos ineludibles suman <strong>$6.000.000</strong> y tu caja base solo cubre <strong>$2.450.000</strong> sin cobranza activa.”
                 </p>
               </div>
             </div>
 
-            {/* Cuadro de mando de Caja */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-slate-400 uppercase">Disponible Hoy (Bancos)</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">${saldoDisponibleHoy.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Saldo en cuenta corriente</div>
+                <div className="text-[10px] text-slate-400 mt-1">Saldo cuenta corriente</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-rose-400 uppercase">Compromisos 30 Días</span>
                 <div className="text-2xl font-mono font-black text-rose-400 mt-1">-${totalCompromisos.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Nómina, proveedores, IVA</div>
+                <div className="text-[10px] text-slate-400 mt-1">Proveedores, Nómina, IVA</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-teal-400 uppercase">Cobros Esperados</span>
                 <div className="text-2xl font-mono font-black text-teal-300 mt-1">+${cobrosEsperadosProximos30Dias.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Cuentas por cobrar a 30d</div>
+                <div className="text-[10px] text-slate-400 mt-1">Convenios exigibles</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
@@ -600,7 +679,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Desglose de Compromisos Ineludibles */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
                 Estructura de Compromisos a Pagar (Próximos 30 Días)
@@ -623,17 +701,15 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 5: CLIENTES & COBRANZA (AGING DE CARTERA) */}
+        {/* VISTA 5: CLIENTES & COBRANZA */}
         {/* ========================================================= */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
-            
-            {/* Métricas Superiores de Cartera */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Total</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">${totalCartera.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Total convenios y créditos</div>
+                <div className="text-[10px] text-slate-400 mt-1">Total acumulado convenios</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
@@ -649,7 +725,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Clasificación por Tramos de Antigüedad (Aging) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
                 Distribución por Antigüedad de Deuda (Aging)
@@ -671,67 +746,6 @@ export default function DashboardUnificadoPage() {
                   <div className="text-[10px] uppercase font-bold text-rose-400">+90 Días (Crítico)</div>
                   <div className="text-lg font-mono font-black text-rose-300 mt-1">${tramo90Mas.toLocaleString('es-CL')}</div>
                 </div>
-              </div>
-            </div>
-
-            {/* Tabla Detallada por Cliente */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <div className="flex justify-between items-center border-b border-slate-700 pb-3 mb-4">
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Detalle por Cliente / Institución</h3>
-                <span className="text-xs text-slate-400">Monitoreo de cobranza directa</span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left text-slate-300">
-                  <thead className="border-b border-slate-700 text-slate-400">
-                    <tr>
-                      <th className="py-2.5 px-2">Cliente / Colegio</th>
-                      <th className="py-2.5 px-2">Facturado</th>
-                      <th className="py-2.5 px-2">Pagado</th>
-                      <th className="py-2.5 px-2">Pendiente</th>
-                      <th className="py-2.5 px-2 text-center">Días Vencido</th>
-                      <th className="py-2.5 px-2 text-right">Riesgo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="py-2.5 px-2 font-semibold text-white">Colegio Santa Marta (Delegación)</td>
-                      <td className="py-2.5 px-2 font-mono">$2.000.000</td>
-                      <td className="py-2.5 px-2 font-mono text-emerald-400">$1.000.000</td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-rose-300">$1.000.000</td>
-                      <td className="py-2.5 px-2 text-center font-mono font-bold text-rose-400">45 d</td>
-                      <td className="py-2.5 px-2 text-right">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
-                          Mora Media
-                        </span>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="py-2.5 px-2 font-semibold text-white">Liceo Rahue (Gira de Estudios)</td>
-                      <td className="py-2.5 px-2 font-mono">$850.000</td>
-                      <td className="py-2.5 px-2 font-mono text-emerald-400">$850.000</td>
-                      <td className="py-2.5 px-2 font-mono text-slate-400">$0</td>
-                      <td className="py-2.5 px-2 text-center font-mono text-slate-400">0 d</td>
-                      <td className="py-2.5 px-2 text-right">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          Al Día
-                        </span>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="py-2.5 px-2 font-semibold text-white">Municipalidad Puyehue (Turismo Social)</td>
-                      <td className="py-2.5 px-2 font-mono">$1.550.000</td>
-                      <td className="py-2.5 px-2 font-mono text-emerald-400">$450.000</td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-rose-300">$1.100.000</td>
-                      <td className="py-2.5 px-2 text-center font-mono font-bold text-rose-400">68 d</td>
-                      <td className="py-2.5 px-2 text-right">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">
-                          Crítico
-                        </span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
