@@ -1,40 +1,46 @@
 import Link from 'next/link';
-import { Fish } from 'lucide-react';
+import Image from 'next/image';
 
 export default function Navbar() {
   return (
-    <header className="bg-white text-slate-800 sticky top-0 z-50 border-b border-slate-200 shadow-sm">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+    <header className="bg-slate-900/95 backdrop-blur-md text-white sticky top-0 z-50 border-b border-sky-950/40 shadow-md">
+      <div className="max-w-6xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-4">
         
-        {/* Identidad Acuario Puyehue */}
+        {/* Logo Real Parque Acuario Puyehue */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-600 shadow-sm group-hover:bg-sky-100 transition">
-            <Fish className="w-6 h-6 text-amber-500 fill-amber-400 group-hover:scale-105 transition" />
+          <div className="relative h-12 w-32 sm:w-36 bg-white/95 rounded-lg px-2 py-1 shadow-sm flex items-center justify-center border border-white/20 group-hover:bg-white transition">
+            <Image 
+              src="/acuario.png" 
+              alt="Parque Acuario Puyehue" 
+              fill
+              className="object-contain p-1"
+              priority
+            />
           </div>
-          <div>
-            <div className="font-black text-base tracking-tight leading-none text-sky-950">
-              ACUARIO <span className="text-sky-600 font-bold">PUYEHUE</span>
+          <div className="hidden sm:block border-l border-slate-700 pl-3">
+            <div className="text-[11px] uppercase tracking-wider font-bold text-sky-400">
+              Control Operativo
             </div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">
-              Portal Operativo & Finanzas
+            <div className="text-[10px] text-slate-400">
+              Entre Lagos • Puyehue
             </div>
           </div>
         </Link>
 
-        {/* Enlaces de Navegación */}
-        <nav className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm font-medium">
-          <Link href="/boleteria" className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-900 hover:bg-slate-100 transition">
+        {/* Enlaces */}
+        <nav className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium">
+          <Link href="/boleteria" className="px-3 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
             Boletería
           </Link>
-          <Link href="/convenios" className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-900 hover:bg-slate-100 transition">
+          <Link href="/convenios" className="px-3 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
             Convenios
           </Link>
-          <Link href="/egresos" className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-900 hover:bg-slate-100 transition">
+          <Link href="/egresos" className="px-3 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
             Egresos
           </Link>
           <Link 
             href="/dashboard" 
-            className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-bold transition shadow-sm"
+            className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold transition shadow-sm"
           >
             Dashboard
           </Link>
