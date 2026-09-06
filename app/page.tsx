@@ -19,7 +19,8 @@ import {
   Clock,
   FileSpreadsheet,
   RotateCcw,
-  List
+  List,
+  Printer
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -62,7 +63,6 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. Cargar Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -71,7 +71,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
-      // 2. Cargar Convenios / Ingresos Dirección
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -79,7 +78,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
-      // Filtrar anulados de forma segura
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
       const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
 
@@ -113,7 +111,7 @@ export default function DashboardUnificadoPage() {
           efectivo: 0,
           pos_compra_aqui: 0,
           pos_transbank: 0,
-          transferencia: monto, // Asumido transferencia bancaria institucional
+          transferencia: monto,
           credito: c.estado_pago === 'Pendiente' ? monto : 0
         };
       });
@@ -142,6 +140,25 @@ export default function DashboardUnificadoPage() {
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
+  // Variables por Canal
+  const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
+  const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
+  const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
+  const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
+  const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
+
+  // Variables por Medio de Pago
+  const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
+  const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
+  const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
+  const recTransf = movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0);
+  const recCredito = movimientos.reduce((acc, m) => acc + (m.credito || 0), 0);
+
+  // Variables de Visitantes
+  const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
+  const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0);
+  const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
+
   // Calendario
   const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const diasEnMes = new Date(anioActual, mesActual + 1, 0).getDate();
@@ -156,7 +173,237 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Cartera Aging
+  // Función de Impresión de Informe Ejecutivo Oficial
+  const handleImprimirInforme = () => {
+    const ventana = window.open('', '_print', 'width=850,height=900');
+    if (!ventana) return;
+
+    ventana.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Informe Ejecutivo de Control Financiero</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #1e293b;
+              padding: 40px;
+              margin: 0;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 16px;
+              margin-bottom: 24px;
+            }
+            .title h1 {
+              font-size: 20px;
+              font-weight: 800;
+              margin: 0;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .title p {
+              font-size: 11px;
+              color: #64748b;
+              margin: 4px 0 0 0;
+            }
+            .meta {
+              text-align: right;
+              font-size: 11px;
+            }
+            .meta strong {
+              color: #0f172a;
+            }
+            .summary-cards {
+              display: flex;
+              gap: 16px;
+              margin-bottom: 24px;
+            }
+            .card {
+              flex: 1;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+              padding: 14px;
+            }
+            .card span {
+              font-size: 10px;
+              font-weight: 700;
+              text-transform: uppercase;
+              color: #64748b;
+              display: block;
+            }
+            .card .val {
+              font-size: 20px;
+              font-weight: 900;
+              font-family: monospace;
+              color: #0f172a;
+              margin-top: 4px;
+            }
+            .card .sub {
+              font-size: 9px;
+              color: #94a3b8;
+              margin-top: 2px;
+            }
+            .grid {
+              display: flex;
+              gap: 20px;
+              margin-bottom: 24px;
+            }
+            .col {
+              flex: 1;
+            }
+            h2 {
+              font-size: 12px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              border-bottom: 1px solid #cbd5e1;
+              padding-bottom: 6px;
+              margin: 0 0 10px 0;
+              color: #0f172a;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 11px;
+            }
+            th {
+              text-align: left;
+              color: #64748b;
+              font-weight: 600;
+              padding: 6px 0;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            td {
+              padding: 6px 0;
+              border-bottom: 1px solid #f1f5f9;
+            }
+            td.num {
+              text-align: right;
+              font-family: monospace;
+              font-weight: 600;
+            }
+            .total-row td {
+              font-weight: 800;
+              border-top: 1px solid #0f172a;
+              border-bottom: none;
+              padding-top: 8px;
+            }
+            .footer {
+              margin-top: 50px;
+              padding-top: 20px;
+              display: flex;
+              justify-content: space-between;
+              font-size: 11px;
+            }
+            .sign-box {
+              width: 200px;
+              border-top: 1px solid #64748b;
+              text-align: center;
+              padding-top: 6px;
+              font-size: 10px;
+              color: #475569;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">
+              <h1>Parque Acuario Puyehue</h1>
+              <p>Informe Ejecutivo de Control Financiero & Operacional</p>
+            </div>
+            <div class="meta">
+              <div>Rango: <strong>${fechaDesde || 'Inicio'} al ${fechaHasta || 'Hoy'}</strong></div>
+              <div>Temporada: <strong>${filtroTemporada}</strong></div>
+              <div>Emisión: ${new Date().toLocaleDateString('es-CL')}</div>
+            </div>
+          </div>
+
+          <div class="summary-cards">
+            <div class="card">
+              <span>Recaudación Período</span>
+              <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
+              <div class="sub">${movimientos.length} operaciones liquidadas</div>
+            </div>
+            <div class="card">
+              <span>Afluencia de Visitantes</span>
+              <div class="val">${totalPublico} pers.</div>
+              <div class="sub">Total de personas atendidas</div>
+            </div>
+            <div class="card">
+              <span>Ticket Promedio Real</span>
+              <div class="val">$${totalPublico > 0 ? Math.round(totalIngresos / totalPublico).toLocaleString('es-CL') : 0}</div>
+              <div class="sub">Ingreso promedio por persona</div>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="col">
+              <h2>1. Ingresos por Canal / Origen</h2>
+              <table>
+                <tbody>
+                  <tr><td>🎟️ Boletería & Tienda</td><td class="num">$${recBoleteria.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏫 Colegios / Delegaciones</td><td class="num">$${recColegios.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🚌 Operadores Turísticos</td><td class="num">$${recOperadores.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏢 Arriendo de Salón</td><td class="num">$${recSalon.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>☕ Cafetería</td><td class="num">$${recCafeteria.toLocaleString('es-CL')}</td></tr>
+                  <tr class="total-row"><td>Total Canales</td><td class="num">$${totalIngresos.toLocaleString('es-CL')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="col">
+              <h2>2. Liquidación por Medios de Pago</h2>
+              <table>
+                <tbody>
+                  <tr><td>💵 Efectivo en Caja</td><td class="num">$${recEfectivo.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>💳 POS Compra Aquí</td><td class="num">$${recCompraAqui.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>💳 POS Transbank</td><td class="num">$${recTransbank.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏦 Transferencias Bancarias</td><td class="num">$${recTransf.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>📑 Cuentas por Cobrar / Cheques</td><td class="num">$${recCredito.toLocaleString('es-CL')}</td></tr>
+                  <tr class="total-row"><td>Total Liquidado</td><td class="num">$${totalIngresos.toLocaleString('es-CL')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h2>3. Desglose de Afluencia de Visitantes</h2>
+            <table>
+              <tbody>
+                <tr><td>🎟️ Taquilla Boletería Principal</td><td class="num">${visBoleteria} personas</td></tr>
+                <tr><td>🏫 Delegaciones Escolares e Institucionales</td><td class="num">${visColegios} personas</td></tr>
+                <tr><td>🚌 Pasajeros de Operadores Turísticos</td><td class="num">${visOperadores} personas</td></tr>
+                <tr class="total-row"><td>Total Visitantes Período</td><td class="num">${totalPublico} personas</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="footer">
+            <div class="sign-box">
+              Administración / Caja
+            </div>
+            <div class="sign-box">
+              Auditoría & Dirección Financiera
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    ventana.document.close();
+  };
+
+  // Cartera Aging y P&L constantes
   const hoyObj = new Date();
   const carteraConDias = convenios.map(c => {
     const fVisita = new Date(c.fecha);
@@ -176,7 +423,6 @@ export default function DashboardUnificadoPage() {
   const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
   const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
 
-  // P&L Data
   const ventasMesActual = 12450000;
   const ventasMesAnterior = 10800000;
   const ventasMesAnoAnterior = 9500000;
@@ -212,7 +458,7 @@ export default function DashboardUnificadoPage() {
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera Principal */}
+        {/* Cabecera Principal con Botón de Informe Ejecutivo */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -222,25 +468,35 @@ export default function DashboardUnificadoPage() {
             <p className="text-xs text-slate-400">Auditoría contable, posición de caja y proyección estratégica</p>
           </div>
 
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setFiltroTemporada('Todas')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Todas' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              onClick={handleImprimirInforme}
+              className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 hover:border-sky-500/50 rounded-xl text-xs font-bold shadow-lg transition"
+              title="Generar e imprimir informe ejecutivo formal para directorio"
             >
-              <Layers className="w-3.5 h-3.5" /> Todas
+              <Printer className="w-4 h-4" /> Informe Ejecutivo
             </button>
-            <button
-              onClick={() => setFiltroTemporada('Verano (Alta)')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Verano (Alta)' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Sun className="w-3.5 h-3.5" /> Verano
-            </button>
-            <button
-              onClick={() => setFiltroTemporada('Invierno (Baja)')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Invierno (Baja)' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Snowflake className="w-3.5 h-3.5" /> Invierno
-            </button>
+
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+              <button
+                onClick={() => setFiltroTemporada('Todas')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Todas' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Layers className="w-3.5 h-3.5" /> Todas
+              </button>
+              <button
+                onClick={() => setFiltroTemporada('Verano (Alta)')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Verano (Alta)' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Sun className="w-3.5 h-3.5" /> Verano
+              </button>
+              <button
+                onClick={() => setFiltroTemporada('Invierno (Baja)')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Invierno (Baja)' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Snowflake className="w-3.5 h-3.5" /> Invierno
+              </button>
+            </div>
           </div>
         </div>
 
@@ -279,7 +535,7 @@ export default function DashboardUnificadoPage() {
         </div>
 
         {/* ========================================================= */}
-        {/* VISTA 1: EJECUTIVO & OPERACIONAL (DESGLOSE COMPLETO) */}
+        {/* VISTA 1: EJECUTIVO & OPERACIONAL */}
         {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
@@ -363,23 +619,23 @@ export default function DashboardUnificadoPage() {
                   <div className="space-y-1.5 text-xs">
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">🎟️ Boletería & Tienda:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recBoleteria.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">🏫 Colegios / Delegaciones:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recColegios.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">🚌 Operadores Turísticos:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recOperadores.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">🏢 Arriendo de Salón:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recSalon.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1">
                       <span className="text-slate-300">☕ Cafetería:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recCafeteria.toLocaleString('es-CL')}</span>
                     </div>
                   </div>
                 </div>
@@ -390,23 +646,23 @@ export default function DashboardUnificadoPage() {
                   <div className="space-y-1.5 text-xs">
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">💵 Efectivo en Caja:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recEfectivo.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">💳 POS Compra Aquí:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recCompraAqui.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">💳 POS Transbank:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recTransbank.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
                       <span className="text-slate-300">🏦 Transferencias Electrónicas:</span>
-                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-white">${recTransf.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1">
                       <span className="text-rose-300">📑 Cuentas por Cobrar / Cheques:</span>
-                      <span className="font-mono font-bold text-rose-300">${movimientos.reduce((acc, m) => acc + (m.credito || 0), 0).toLocaleString('es-CL')}</span>
+                      <span className="font-mono font-bold text-rose-300">${recCredito.toLocaleString('es-CL')}</span>
                     </div>
                   </div>
                 </div>
@@ -433,7 +689,7 @@ export default function DashboardUnificadoPage() {
                   <div>
                     <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
                     <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0)} pers.
+                      {visBoleteria} pers.
                     </div>
                   </div>
                 </div>
@@ -442,7 +698,7 @@ export default function DashboardUnificadoPage() {
                   <div>
                     <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
                     <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0)} pers.
+                      {visColegios} pers.
                     </div>
                   </div>
                 </div>
@@ -451,7 +707,7 @@ export default function DashboardUnificadoPage() {
                   <div>
                     <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
                     <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0)} pers.
+                      {visOperadores} pers.
                     </div>
                   </div>
                 </div>
