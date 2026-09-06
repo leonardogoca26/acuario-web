@@ -22,7 +22,7 @@ import {
   TrendingUp,
   Wallet,
   AlertTriangle,
-  AlertCircle
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -68,6 +68,7 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
+      // 1. Cierre Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -76,6 +77,7 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
+      // 2. Convenios
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -83,26 +85,46 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
+      // 3. Cartola Banco
       let queryBanco = supabase.from('cartola_banco').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryBanco = queryBanco.gte('fecha', fechaDesde);
         if (fechaHasta) queryBanco = queryBanco.lte('fecha', fechaHasta);
       }
-      const { data: dataBanco } = await queryBanco;
+      const { data: dataBanco } = await queryBanco.order('fecha', { ascending: false });
 
-      let dataEgr: any[] = [];
-      try {
-        let queryEgr = supabase.from('egresos').select('*');
-        if (aplicarFechas) {
-          if (fechaDesde) queryEgr = queryEgr.gte('fecha', fechaDesde);
-          if (fechaHasta) queryEgr = queryEgr.lte('fecha', fechaHasta);
-        }
-        const { data } = await queryEgr;
-        dataEgr = data || [];
-      } catch (err) {
-        console.warn('Tabla egresos aún sin registros:', err);
+      // 4. Egresos (Búsqueda flexible en egresos o gastos)
+      let listaEgresosCruda: any[] = [];
+      const { data: resEgr, error: errEgr } = await supabase.from('egresos').select('*');
+      if (!errEgr && resEgr) {
+        listaEgresosCruda = resEgr;
+      } else {
+        const { data: resGas } = await supabase.from('gastos').select('*');
+        if (resGas) listaEgresosCruda = resGas;
       }
 
+      // Filtrar y normalizar egresos
+      const listaEgresosNormalizada = listaEgresosCruda
+        .filter(e => (e.estado || '').toLowerCase() !== 'anulado')
+        .map(e => {
+          const fStr = e.fecha || (e.created_at ? e.created_at.split('T')[0] : hoyStr);
+          const mNum = Number(e.monto || e.valor || e.total || 0);
+          return {
+            id: e.id,
+            fecha: fStr,
+            categoria: e.categoria || e.tipo || 'Gasto General',
+            descripcion: e.descripcion || e.detalle || 'Egreso registrado',
+            monto: mNum
+          };
+        })
+        .filter(e => {
+          if (!aplicarFechas) return true;
+          if (fechaDesde && e.fecha < fechaDesde) return false;
+          if (fechaHasta && e.fecha > fechaHasta) return false;
+          return true;
+        });
+
+      // 5. Histórico Mensual
       const { data: dataHist } = await supabase
         .from('historico_mensual')
         .select('*')
@@ -152,7 +174,7 @@ export default function DashboardUnificadoPage() {
       setMovimientos([...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
       setConvenios(listaConv);
       setAbonosBanco(dataBanco || []);
-      setEgresos(dataEgr);
+      setEgresos(listaEgresosNormalizada);
     } catch (e) {
       console.error('Error cargando datos:', e);
     } finally {
@@ -203,6 +225,19 @@ export default function DashboardUnificadoPage() {
     }
   };
 
+  const handleEliminarAbono = async (id: number) => {
+    const confirmar = window.confirm('¿Estás seguro de anular/eliminar este movimiento bancario? Se descontará del flujo de caja de inmediato.');
+    if (!confirmar) return;
+
+    try {
+      const { error } = await supabase.from('cartola_banco').delete().eq('id', id);
+      if (error) throw error;
+      cargarDatos();
+    } catch (err: any) {
+      alert('Error al eliminar el abono: ' + err.message);
+    }
+  };
+
   // Totales Operativos
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
@@ -216,7 +251,8 @@ export default function DashboardUnificadoPage() {
   const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
 
-  const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
+  // Egresos calculados
+  const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
   const saldoCajaHoyEstimado = totalIngresoRealCaja > 0 ? totalIngresoRealCaja - totalEgresosReales : 8450000;
@@ -284,8 +320,8 @@ export default function DashboardUnificadoPage() {
     egresos.forEach(e => {
       if (!e.fecha) return;
       const mesIdx = new Date(e.fecha + 'T12:00:00').getMonth();
-      const cat = e.categoria || e.tipo || 'Gastos Operacionales';
-      const monto = Number(e.monto || e.total || 0);
+      const cat = e.categoria || 'Gastos Generales';
+      const monto = Number(e.monto || 0);
       if (!mapaEgresosCat[cat]) mapaEgresosCat[cat] = Array(12).fill(0);
       mapaEgresosCat[cat][mesIdx] += monto;
       totEgrMes[mesIdx] += monto;
@@ -385,7 +421,7 @@ export default function DashboardUnificadoPage() {
         personas: 0
       };
     }
-    mapaConciliacion[e.fecha].egresos += Number(e.monto || e.total || 0);
+    mapaConciliacion[e.fecha].egresos += Number(e.monto || 0);
   });
 
   const listaConciliacionOrdenada = Object.values(mapaConciliacion).map((row: any) => {
@@ -436,7 +472,7 @@ export default function DashboardUnificadoPage() {
     2026: { bg: 'bg-sky-400', text: 'text-sky-300' }
   };
 
-  // Cartera y Antigüedad de Deuda (Aging)
+  // Cartera Aging
   const hoyObj = new Date();
   const carteraConDias = convenios.map(c => {
     const fVisita = new Date(c.fecha);
@@ -609,7 +645,7 @@ export default function DashboardUnificadoPage() {
           </div>
         </div>
 
-        {/* SUB-MENÚ DE NAVEGACIÓN (4 SECCIONES ESTRATÉGICAS) */}
+        {/* SUB-MENÚ DE NAVEGACIÓN */}
         <div className="flex overflow-x-auto gap-2 p-1.5 bg-slate-950/80 border border-slate-800 rounded-2xl">
           <button
             onClick={() => setSeccion('operativo')}
@@ -930,6 +966,67 @@ export default function DashboardUnificadoPage() {
                 </table>
               </div>
             </div>
+
+            {/* TABLA DE MOVIMIENTOS BANCARIOS REGISTRADOS (CON BOTÓN ANULAR) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Abonos y Liquidaciones Bancarias Cargadas</h3>
+                  <p className="text-xs text-slate-400">Listado de ingresos a cartola registrados con opción de anulación directa</p>
+                </div>
+                <span className="text-xs font-mono text-slate-400">{abonosBanco.length} movimientos</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300 font-mono">
+                  <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2 px-2">Fecha</th>
+                      <th className="py-2 px-2">Tipo de Abono</th>
+                      <th className="py-2 px-2">Origen / Emisor</th>
+                      <th className="py-2 px-2">Observación / Ref.</th>
+                      <th className="py-2 px-2 text-right">Monto Depositado</th>
+                      <th className="py-2 px-2 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {abonosBanco.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-slate-500 italic">
+                          No hay abonos bancarios registrados en este rango de fechas.
+                        </td>
+                      </tr>
+                    ) : (
+                      abonosBanco.map((abono: any) => (
+                        <tr key={abono.id} className="hover:bg-slate-800/40">
+                          <td className="py-2 px-2 font-bold text-white">{abono.fecha}</td>
+                          <td className="py-2 px-2">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                              {abono.tipo_abono}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 font-sans text-slate-200">{abono.origen_cliente || '-'}</td>
+                          <td className="py-2 px-2 font-sans text-slate-400">{abono.observacion || '-'}</td>
+                          <td className="py-2 px-2 text-right font-bold text-teal-300">
+                            ${Number(abono.monto || 0).toLocaleString('es-CL')}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <button
+                              onClick={() => handleEliminarAbono(abono.id)}
+                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition"
+                              title="Anular este abono de la cartola"
+                            >
+                              <Trash2 className="w-4 h-4 inline" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -937,7 +1034,7 @@ export default function DashboardUnificadoPage() {
         {seccion === 'graficas' && (
           <div className="space-y-8">
             
-            {/* GRÁFICO 1: HISTÓRICO DE INGRESOS POR MES Y AÑO (2022 A 2026) */}
+            {/* GRÁFICO 1: HISTÓRICO DE INGRESOS POR MES Y AÑO */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -977,7 +1074,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* GRÁFICO 2: AFLUENCIA HISTÓRICA DE VISITANTES (PERSONAS POR MES 2022 A 2026) */}
+            {/* GRÁFICO 2: AFLUENCIA HISTÓRICA DE VISITANTES */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -1107,11 +1204,9 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* VISTA 4: CLIENTES & COBRANZA (INTEGRAL CON AGING DE DEUDA) */}
+        {/* VISTA 4: CLIENTES & COBRANZA */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
-            
-            {/* Tarjetas Principales de Cartera */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Facturado</span>
@@ -1135,7 +1230,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Antigüedad de Saldos (Aging) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-4 border-b border-slate-700 pb-2">
                 Clasificación de Antigüedad de Deuda (Aging)
@@ -1160,7 +1254,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Detalle de Convenios Pendientes */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
                 Instituciones y Facturas Pendientes de Cobro ({conveniosPendientes.length})
@@ -1201,7 +1294,6 @@ export default function DashboardUnificadoPage() {
                 </table>
               </div>
             </div>
-
           </div>
         )}
 
