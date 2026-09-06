@@ -34,11 +34,14 @@ export default function DashboardUnificadoPage() {
   const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano (Alta)' | 'Invierno (Baja)'>('Todas');
   
-  // Filtros de fecha generales y del flujo
   const [fechaDesde, setFechaDesde] = useState(inicioMesStr);
   const [fechaHasta, setFechaHasta] = useState(hoyStr);
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
+
+  // Estados de acordeón expandible para la matriz anual
+  const [expandirIngresos, setExpandirIngresos] = useState(false);
+  const [expandirEgresos, setExpandirEgresos] = useState(false);
 
   // Calendario
   const fechaActual = new Date();
@@ -52,7 +55,7 @@ export default function DashboardUnificadoPage() {
   const [abonosBanco, setAbonosBanco] = useState<any[]>([]);
   const [egresos, setEgresos] = useState<any[]>([]);
 
-  // Modal para registrar abono bancario
+  // Modal registrar abono bancario
   const [modalAbonoAbierto, setModalAbonoAbierto] = useState(false);
   const [guardandoAbono, setGuardandoAbono] = useState(false);
   const [formFechaAbono, setFormFechaAbono] = useState(hoyStr);
@@ -64,7 +67,6 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. Cierre Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -73,7 +75,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
-      // 2. Convenios
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -81,7 +82,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
-      // 3. Cartola Banco / Abonos Reales
       let queryBanco = supabase.from('cartola_banco').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryBanco = queryBanco.gte('fecha', fechaDesde);
@@ -89,7 +89,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBanco } = await queryBanco;
 
-      // 4. Egresos (Lectura segura con fallback si la tabla aún no existe)
       let dataEgr: any[] = [];
       try {
         let queryEgr = supabase.from('egresos').select('*');
@@ -100,7 +99,7 @@ export default function DashboardUnificadoPage() {
         const { data } = await queryEgr;
         dataEgr = data || [];
       } catch (err) {
-        console.warn('Tabla egresos aún no disponible o sin registros:', err);
+        console.warn('Tabla egresos aún sin registros:', err);
       }
 
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
@@ -195,11 +194,11 @@ export default function DashboardUnificadoPage() {
     }
   };
 
-  // Totales Operativos (Ventas Devengadas)
+  // Totales Operativos
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Totales de Flujo de Caja Real
+  // Totales Flujo de Caja
   const totalEfectivoCaja = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const totalAbonosCartola = abonosBanco.reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
@@ -207,13 +206,10 @@ export default function DashboardUnificadoPage() {
 
   const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-  const totalOtrosAbonos = abonosBanco.filter(a => a.tipo_abono !== 'Liquidación Transbank' && a.tipo_abono !== 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
 
-  // Egresos Totales
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
-  // Proyección de Tesorería a 30 días
   const saldoCajaHoyEstimado = totalIngresoRealCaja > 0 ? totalIngresoRealCaja - totalEgresosReales : 8450000;
   const cobrosPendientesPorEntrar = convenios.filter(c => c.estado_pago === 'Pendiente').reduce((acc, c) => acc + Number(c.total_recaudado || c.monto || 0), 0);
   const compromisosFuturos = 6000000;
@@ -226,14 +222,14 @@ export default function DashboardUnificadoPage() {
   const mesesUnicosOperados = Math.max(1, new Set(movimientos.map(m => m.fecha.substring(0, 7))).size);
   const promedioMensual = Math.round(totalIngresos / mesesUnicosOperados);
 
-  // Desgloses Operativos por Canal
+  // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
   const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
 
-  // Desgloses por Medio de Pago en Taquilla
+  // Desgloses por Medio de Pago
   const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
   const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
@@ -259,7 +255,7 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Consolidación de la Sábana Diaria (Ingresos Reales vs Egresos del Día)
+  // Consolidación de la Sábana Diaria
   const mapaConciliacion: Record<string, any> = {};
   movimientos.forEach(m => {
     if (!mapaConciliacion[m.fecha]) {
@@ -868,12 +864,12 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 2: FLUJO DE CAJA REAL & PROYECCIÓN INTEGRADA CON EGRESOS */}
+        {/* VISTA 2: FLUJO DE CAJA REAL & PROYECCIÓN INTEGRADA */}
         {/* ========================================================= */}
         {seccion === 'flujocaja' && (
           <div className="space-y-6">
             
-            {/* Barra de Filtro de Fechas Propia del Flujo y Acción Rápida */}
+            {/* Barra de Filtro de Fechas Propia del Flujo */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
@@ -922,10 +918,9 @@ export default function DashboardUnificadoPage() {
               </button>
             </div>
 
-            {/* RADIOGRAFÍA DE POSICIÓN NETA Y PROYECCIÓN DE LIQUIDEZ */}
+            {/* RADIOGRAFÍA DE POSICIÓN NETA */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               
-              {/* Entradas Reales */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Total Ingresos Reales</span>
@@ -937,7 +932,6 @@ export default function DashboardUnificadoPage() {
                 <div className="text-[10px] text-slate-400 mt-1">Efectivo + Abonos TB/CA + Transf.</div>
               </div>
 
-              {/* Salidas / Egresos */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Egresos del Período</span>
@@ -949,7 +943,6 @@ export default function DashboardUnificadoPage() {
                 <div className="text-[10px] text-slate-400 mt-1">{egresos.length} gastos contabilizados</div>
               </div>
 
-              {/* Saldo Neto Operativo */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Saldo Neto Operativo</span>
@@ -961,7 +954,6 @@ export default function DashboardUnificadoPage() {
                 <div className="text-[10px] text-slate-400 mt-1">Margen de caja del rango</div>
               </div>
 
-              {/* Proyección a 30 Días */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Proyección Caja 30 Días</span>
@@ -975,7 +967,268 @@ export default function DashboardUnificadoPage() {
 
             </div>
 
-            {/* SÁBANA DIARIA DE CONCILIACIÓN CON COLUMNA DE EGRESOS Y SALDO NETO */}
+            {/* ========================================================= */}
+            {/* MATRIZ ANUAL EXPANDIBLE / CONTRAÍBLE (ACORDEÓN)           */}
+            {/* ========================================================= */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Estacionalidad & Presupuesto Anual</span>
+                  <h3 className="text-sm font-black text-white">Proyección y Balance Mensualizado (Ingresos vs Egresos)</h3>
+                  <p className="text-[11px] text-slate-400">Haz clic en Ingresos o Egresos para desplegar los subconceptos</p>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-mono">
+                  <div className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-slate-300">
+                    Margen Anual: <strong className="text-emerald-400 font-bold">37%</strong>
+                  </div>
+                  <div className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-slate-300">
+                    Utilidad Libre: <strong className="text-teal-300 font-bold">$27.008.882</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-right font-mono border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-700 text-[11px] text-slate-400 uppercase">
+                      <th className="text-left py-2 px-2.5 font-sans font-bold">Concepto</th>
+                      <th className="py-2 px-2">Ene</th>
+                      <th className="py-2 px-2">Feb</th>
+                      <th className="py-2 px-2">Mar</th>
+                      <th className="py-2 px-2">Abr</th>
+                      <th className="py-2 px-2">May</th>
+                      <th className="py-2 px-2">Jun</th>
+                      <th className="py-2 px-2">Jul</th>
+                      <th className="py-2 px-2">Ago</th>
+                      <th className="py-2 px-2">Sep</th>
+                      <th className="py-2 px-2">Oct</th>
+                      <th className="py-2 px-2">Nov</th>
+                      <th className="py-2 px-2">Dic</th>
+                      <th className="py-2 px-3 text-white font-bold bg-slate-950/60 border-l border-slate-700">Total Anual</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    
+                    {/* Fila Padre: Ingresos */}
+                    <tr 
+                      onClick={() => setExpandirIngresos(!expandirIngresos)}
+                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
+                    >
+                      <td className="text-left py-2.5 px-2.5 font-sans font-bold text-teal-300 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirIngresos ? '▼' : '►'}</span>
+                        (+) Ingresos
+                      </td>
+                      <td className="py-2 px-2 text-slate-200">14.772.253</td>
+                      <td className="py-2 px-2 text-slate-200 font-bold text-teal-200">21.793.084</td>
+                      <td className="py-2 px-2 text-slate-300">2.240.406</td>
+                      <td className="py-2 px-2 text-slate-400">34.364</td>
+                      <td className="py-2 px-2 text-slate-300">1.702.954</td>
+                      <td className="py-2 px-2 text-slate-300">2.818.904</td>
+                      <td className="py-2 px-2 text-slate-200 font-semibold text-teal-200">8.000.258</td>
+                      <td className="py-2 px-2 text-slate-300">5.055.967</td>
+                      <td className="py-2 px-2 text-slate-300">4.040.596</td>
+                      <td className="py-2 px-2 text-slate-300">4.137.229</td>
+                      <td className="py-2 px-2 text-slate-300">3.873.882</td>
+                      <td className="py-2 px-2 text-slate-300">4.428.223</td>
+                      <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">
+                        $72.898.120
+                      </td>
+                    </tr>
+
+                    {/* Desglose Ingresos (Expandible) */}
+                    {expandirIngresos && (
+                      <>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🎟️ Boletería & Entradas</td>
+                          <td className="py-1.5 px-2">12.500.000</td>
+                          <td className="py-1.5 px-2">18.200.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">900.000</td>
+                          <td className="py-1.5 px-2">1.500.000</td>
+                          <td className="py-1.5 px-2">6.200.000</td>
+                          <td className="py-1.5 px-2">3.800.000</td>
+                          <td className="py-1.5 px-2">2.500.000</td>
+                          <td className="py-1.5 px-2">2.400.000</td>
+                          <td className="py-1.5 px-2">2.100.000</td>
+                          <td className="py-1.5 px-2">3.000.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$54.900.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🏫 Colegios / Delegaciones</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">240.406</td>
+                          <td className="py-1.5 px-2">34.364</td>
+                          <td className="py-1.5 px-2">550.000</td>
+                          <td className="py-1.5 px-2">800.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">455.967</td>
+                          <td className="py-1.5 px-2">840.596</td>
+                          <td className="py-1.5 px-2">1.137.229</td>
+                          <td className="py-1.5 px-2">1.273.882</td>
+                          <td className="py-1.5 px-2">628.223</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$5.960.667</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🚌 Operadores Turísticos</td>
+                          <td className="py-1.5 px-2">1.850.000</td>
+                          <td className="py-1.5 px-2">2.800.000</td>
+                          <td className="py-1.5 px-2">100.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">150.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">1.400.000</td>
+                          <td className="py-1.5 px-2">600.000</td>
+                          <td className="py-1.5 px-2">400.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-2">500.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$8.800.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">☕ Cafetería / Salón</td>
+                          <td className="py-1.5 px-2">422.253</td>
+                          <td className="py-1.5 px-2">793.084</td>
+                          <td className="py-1.5 px-2">100.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">102.954</td>
+                          <td className="py-1.5 px-2">168.904</td>
+                          <td className="py-1.5 px-2">400.258</td>
+                          <td className="py-1.5 px-2">200.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-2">250.000</td>
+                          <td className="py-1.5 px-2">200.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$3.237.453</td>
+                        </tr>
+                      </>
+                    )}
+
+                    {/* Fila Padre: Egresos */}
+                    <tr 
+                      onClick={() => setExpandirEgresos(!expandirEgresos)}
+                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
+                    >
+                      <td className="text-left py-2.5 px-2.5 font-sans font-bold text-rose-300 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirEgresos ? '▼' : '►'}</span>
+                        (-) Egresos
+                      </td>
+                      <td className="py-2 px-2 text-slate-400">4.437.878</td>
+                      <td className="py-2 px-2 text-slate-400">4.333.109</td>
+                      <td className="py-2 px-2 text-slate-400">4.213.705</td>
+                      <td className="py-2 px-2 text-slate-400">3.308.723</td>
+                      <td className="py-2 px-2 text-slate-400">4.431.620</td>
+                      <td className="py-2 px-2 text-slate-400">3.142.317</td>
+                      <td className="py-2 px-2 text-slate-400">4.328.651</td>
+                      <td className="py-2 px-2 text-slate-400">2.153.811</td>
+                      <td className="py-2 px-2 text-slate-400">3.563.285</td>
+                      <td className="py-2 px-2 text-slate-400">2.930.576</td>
+                      <td className="py-2 px-2 text-slate-400">4.216.853</td>
+                      <td className="py-2 px-2 text-slate-400">4.828.710</td>
+                      <td className="py-2 px-3 font-bold text-rose-300 bg-slate-950/60 border-l border-slate-700">
+                        -$45.889.238
+                      </td>
+                    </tr>
+
+                    {/* Desglose Egresos (Expandible) */}
+                    {expandirEgresos && (
+                      <>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">👥 Remuneraciones Líquidas</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">2.000.000</td>
+                          <td className="py-1.5 px-2">1.400.000</td>
+                          <td className="py-1.5 px-2">1.700.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$21.900.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🐟 Alimento Fauna & Operación</td>
+                          <td className="py-1.5 px-2">1.100.000</td>
+                          <td className="py-1.5 px-2">1.050.000</td>
+                          <td className="py-1.5 px-2">1.200.000</td>
+                          <td className="py-1.5 px-2">850.000</td>
+                          <td className="py-1.5 px-2">1.350.000</td>
+                          <td className="py-1.5 px-2">780.000</td>
+                          <td className="py-1.5 px-2">1.250.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">980.000</td>
+                          <td className="py-1.5 px-2">650.000</td>
+                          <td className="py-1.5 px-2">1.250.000</td>
+                          <td className="py-1.5 px-2">1.450.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$11.460.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">⚡ Servicios Básicos & Mantención</td>
+                          <td className="py-1.5 px-2">650.000</td>
+                          <td className="py-1.5 px-2">620.000</td>
+                          <td className="py-1.5 px-2">750.000</td>
+                          <td className="py-1.5 px-2">550.000</td>
+                          <td className="py-1.5 px-2">780.000</td>
+                          <td className="py-1.5 px-2">460.000</td>
+                          <td className="py-1.5 px-2">680.000</td>
+                          <td className="py-1.5 px-2">250.000</td>
+                          <td className="py-1.5 px-2">580.000</td>
+                          <td className="py-1.5 px-2">420.000</td>
+                          <td className="py-1.5 px-2">680.000</td>
+                          <td className="py-1.5 px-2">750.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$7.170.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">📑 Impuestos (F29) & Créditos</td>
+                          <td className="py-1.5 px-2">487.878</td>
+                          <td className="py-1.5 px-2">463.109</td>
+                          <td className="py-1.5 px-2">463.705</td>
+                          <td className="py-1.5 px-2">308.723</td>
+                          <td className="py-1.5 px-2">501.620</td>
+                          <td className="py-1.5 px-2">302.317</td>
+                          <td className="py-1.5 px-2">398.651</td>
+                          <td className="py-1.5 px-2">153.811</td>
+                          <td className="py-1.5 px-2">303.285</td>
+                          <td className="py-1.5 px-2">260.576</td>
+                          <td className="py-1.5 px-2">486.853</td>
+                          <td className="py-1.5 px-2">428.710</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$5.359.238</td>
+                        </tr>
+                      </>
+                    )}
+
+                    {/* Fila Fija: Saldo Neto */}
+                    <tr className="bg-slate-900/90 font-bold border-t-2 border-slate-700">
+                      <td className="text-left py-2.5 px-2.5 font-sans text-white">
+                        (=) Margen Neto
+                      </td>
+                      <td className="py-2 px-2 text-emerald-400">+10.334.375</td>
+                      <td className="py-2 px-2 text-emerald-400">+17.459.975</td>
+                      <td className="py-2 px-2 text-rose-400">-1.973.299</td>
+                      <td className="py-2 px-2 text-rose-400">-3.274.359</td>
+                      <td className="py-2 px-2 text-rose-400">-2.728.666</td>
+                      <td className="py-2 px-2 text-rose-400">-323.413</td>
+                      <td className="py-2 px-2 text-emerald-400">+3.671.607</td>
+                      <td className="py-2 px-2 text-emerald-400">+2.902.156</td>
+                      <td className="py-2 px-2 text-emerald-400">+477.311</td>
+                      <td className="py-2 px-2 text-emerald-400">+1.206.653</td>
+                      <td className="py-2 px-2 text-rose-400">-342.971</td>
+                      <td className="py-2 px-2 text-rose-400">-400.487</td>
+                      <td className="py-2 px-3 font-black text-emerald-400 bg-slate-950 border-l border-slate-700">
+                        +$27.008.882
+                      </td>
+                    </tr>
+
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* SÁBANA DIARIA DE CONCILIACIÓN */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                 <div>
@@ -1132,9 +1385,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 3: GRÁFICAS GENERALES */}
-        {/* ========================================================= */}
+        {/* VISTA 3: GRÁFICAS */}
         {seccion === 'graficas' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
@@ -1144,9 +1395,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 4: ESTADO DE RESULTADOS (P&L) */}
-        {/* ========================================================= */}
+        {/* VISTA 4: P&L */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
@@ -1171,9 +1420,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 5: CLIENTES & COBRANZA */}
-        {/* ========================================================= */}
+        {/* VISTA 5: CLIENTES */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

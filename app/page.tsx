@@ -39,6 +39,10 @@ export default function DashboardUnificadoPage() {
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
+  // Estados de acordeón expandible para la matriz anual
+  const [expandirIngresos, setExpandirIngresos] = useState(false);
+  const [expandirEgresos, setExpandirEgresos] = useState(false);
+
   // Calendario
   const fechaActual = new Date();
   const [mesActual, setMesActual] = useState(fechaActual.getMonth());
@@ -190,7 +194,7 @@ export default function DashboardUnificadoPage() {
     }
   };
 
-  // Totales Operativos (Ventas Devengadas)
+  // Totales Operativos
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
@@ -202,7 +206,6 @@ export default function DashboardUnificadoPage() {
 
   const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-  const totalOtrosAbonos = abonosBanco.filter(a => a.tipo_abono !== 'Liquidación Transbank' && a.tipo_abono !== 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
 
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
@@ -219,7 +222,7 @@ export default function DashboardUnificadoPage() {
   const mesesUnicosOperados = Math.max(1, new Set(movimientos.map(m => m.fecha.substring(0, 7))).size);
   const promedioMensual = Math.round(totalIngresos / mesesUnicosOperados);
 
-  // Desgloses Operativos por Canal
+  // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
   const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
@@ -965,13 +968,14 @@ export default function DashboardUnificadoPage() {
             </div>
 
             {/* ========================================================= */}
-            {/* MATRIZ ANUAL (PROYECCIÓN AÑO 2025 DEL EXCEL DEL DIRECTOR) */}
+            {/* MATRIZ ANUAL EXPANDIBLE / CONTRAÍBLE (ACORDEÓN)           */}
             {/* ========================================================= */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Estacionalidad & Presupuesto Anual</span>
                   <h3 className="text-sm font-black text-white">Proyección y Balance Mensualizado (Ingresos vs Egresos)</h3>
+                  <p className="text-[11px] text-slate-400">Haz clic en Ingresos o Egresos para desplegar los subconceptos</p>
                 </div>
                 <div className="flex items-center gap-3 text-xs font-mono">
                   <div className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-slate-300">
@@ -1004,9 +1008,14 @@ export default function DashboardUnificadoPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {/* Fila Ingresos */}
-                    <tr className="hover:bg-slate-900/30">
-                      <td className="text-left py-2.5 px-2.5 font-sans font-semibold text-teal-300">
+                    
+                    {/* Fila Padre: Ingresos */}
+                    <tr 
+                      onClick={() => setExpandirIngresos(!expandirIngresos)}
+                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
+                    >
+                      <td className="text-left py-2.5 px-2.5 font-sans font-bold text-teal-300 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirIngresos ? '▼' : '►'}</span>
                         (+) Ingresos
                       </td>
                       <td className="py-2 px-2 text-slate-200">14.772.253</td>
@@ -1026,9 +1035,83 @@ export default function DashboardUnificadoPage() {
                       </td>
                     </tr>
 
-                    {/* Fila Egresos */}
-                    <tr className="hover:bg-slate-900/30">
-                      <td className="text-left py-2.5 px-2.5 font-sans font-semibold text-rose-300">
+                    {/* Desglose Ingresos (Expandible) */}
+                    {expandirIngresos && (
+                      <>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🎟️ Boletería & Entradas</td>
+                          <td className="py-1.5 px-2">12.500.000</td>
+                          <td className="py-1.5 px-2">18.200.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">900.000</td>
+                          <td className="py-1.5 px-2">1.500.000</td>
+                          <td className="py-1.5 px-2">6.200.000</td>
+                          <td className="py-1.5 px-2">3.800.000</td>
+                          <td className="py-1.5 px-2">2.500.000</td>
+                          <td className="py-1.5 px-2">2.400.000</td>
+                          <td className="py-1.5 px-2">2.100.000</td>
+                          <td className="py-1.5 px-2">3.000.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$54.900.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🏫 Colegios / Delegaciones</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">240.406</td>
+                          <td className="py-1.5 px-2">34.364</td>
+                          <td className="py-1.5 px-2">550.000</td>
+                          <td className="py-1.5 px-2">800.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">455.967</td>
+                          <td className="py-1.5 px-2">840.596</td>
+                          <td className="py-1.5 px-2">1.137.229</td>
+                          <td className="py-1.5 px-2">1.273.882</td>
+                          <td className="py-1.5 px-2">628.223</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$5.960.667</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🚌 Operadores Turísticos</td>
+                          <td className="py-1.5 px-2">1.850.000</td>
+                          <td className="py-1.5 px-2">2.800.000</td>
+                          <td className="py-1.5 px-2">100.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">150.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">1.400.000</td>
+                          <td className="py-1.5 px-2">600.000</td>
+                          <td className="py-1.5 px-2">400.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-2">500.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$8.800.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">☕ Cafetería / Salón</td>
+                          <td className="py-1.5 px-2">422.253</td>
+                          <td className="py-1.5 px-2">793.084</td>
+                          <td className="py-1.5 px-2">100.000</td>
+                          <td className="py-1.5 px-2">0</td>
+                          <td className="py-1.5 px-2">102.954</td>
+                          <td className="py-1.5 px-2">168.904</td>
+                          <td className="py-1.5 px-2">400.258</td>
+                          <td className="py-1.5 px-2">200.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-2">250.000</td>
+                          <td className="py-1.5 px-2">200.000</td>
+                          <td className="py-1.5 px-2">300.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$3.237.453</td>
+                        </tr>
+                      </>
+                    )}
+
+                    {/* Fila Padre: Egresos */}
+                    <tr 
+                      onClick={() => setExpandirEgresos(!expandirEgresos)}
+                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
+                    >
+                      <td className="text-left py-2.5 px-2.5 font-sans font-bold text-rose-300 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirEgresos ? '▼' : '►'}</span>
                         (-) Egresos
                       </td>
                       <td className="py-2 px-2 text-slate-400">4.437.878</td>
@@ -1048,8 +1131,78 @@ export default function DashboardUnificadoPage() {
                       </td>
                     </tr>
 
-                    {/* Fila Saldo Neto / Diferencias */}
-                    <tr className="bg-slate-900/80 font-bold">
+                    {/* Desglose Egresos (Expandible) */}
+                    {expandirEgresos && (
+                      <>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">👥 Remuneraciones Líquidas</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">2.000.000</td>
+                          <td className="py-1.5 px-2">1.400.000</td>
+                          <td className="py-1.5 px-2">1.700.000</td>
+                          <td className="py-1.5 px-2">1.600.000</td>
+                          <td className="py-1.5 px-2">1.800.000</td>
+                          <td className="py-1.5 px-2">2.200.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$21.900.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">🐟 Alimento Fauna & Operación</td>
+                          <td className="py-1.5 px-2">1.100.000</td>
+                          <td className="py-1.5 px-2">1.050.000</td>
+                          <td className="py-1.5 px-2">1.200.000</td>
+                          <td className="py-1.5 px-2">850.000</td>
+                          <td className="py-1.5 px-2">1.350.000</td>
+                          <td className="py-1.5 px-2">780.000</td>
+                          <td className="py-1.5 px-2">1.250.000</td>
+                          <td className="py-1.5 px-2">350.000</td>
+                          <td className="py-1.5 px-2">980.000</td>
+                          <td className="py-1.5 px-2">650.000</td>
+                          <td className="py-1.5 px-2">1.250.000</td>
+                          <td className="py-1.5 px-2">1.450.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$11.460.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">⚡ Servicios Básicos & Mantención</td>
+                          <td className="py-1.5 px-2">650.000</td>
+                          <td className="py-1.5 px-2">620.000</td>
+                          <td className="py-1.5 px-2">750.000</td>
+                          <td className="py-1.5 px-2">550.000</td>
+                          <td className="py-1.5 px-2">780.000</td>
+                          <td className="py-1.5 px-2">460.000</td>
+                          <td className="py-1.5 px-2">680.000</td>
+                          <td className="py-1.5 px-2">250.000</td>
+                          <td className="py-1.5 px-2">580.000</td>
+                          <td className="py-1.5 px-2">420.000</td>
+                          <td className="py-1.5 px-2">680.000</td>
+                          <td className="py-1.5 px-2">750.000</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$7.170.000</td>
+                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
+                          <td className="text-left py-1.5 pl-6 font-sans">📑 Impuestos (F29) & Créditos</td>
+                          <td className="py-1.5 px-2">487.878</td>
+                          <td className="py-1.5 px-2">463.109</td>
+                          <td className="py-1.5 px-2">463.705</td>
+                          <td className="py-1.5 px-2">308.723</td>
+                          <td className="py-1.5 px-2">501.620</td>
+                          <td className="py-1.5 px-2">302.317</td>
+                          <td className="py-1.5 px-2">398.651</td>
+                          <td className="py-1.5 px-2">153.811</td>
+                          <td className="py-1.5 px-2">303.285</td>
+                          <td className="py-1.5 px-2">260.576</td>
+                          <td className="py-1.5 px-2">486.853</td>
+                          <td className="py-1.5 px-2">428.710</td>
+                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$5.359.238</td>
+                        </tr>
+                      </>
+                    )}
+
+                    {/* Fila Fija: Saldo Neto */}
+                    <tr className="bg-slate-900/90 font-bold border-t-2 border-slate-700">
                       <td className="text-left py-2.5 px-2.5 font-sans text-white">
                         (=) Margen Neto
                       </td>
@@ -1069,6 +1222,7 @@ export default function DashboardUnificadoPage() {
                         +$27.008.882
                       </td>
                     </tr>
+
                   </tbody>
                 </table>
               </div>
