@@ -22,8 +22,7 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
-  AlertTriangle,
-  Users
+  AlertTriangle
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -215,9 +214,6 @@ export default function DashboardUnificadoPage() {
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
   const totalIngresoRealCaja = totalEfectivoCaja + totalAbonosCartola + totalTransfConvenios;
 
-  const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-  const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
@@ -396,9 +392,7 @@ export default function DashboardUnificadoPage() {
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  // =========================================================================
-  // PREPARACIÓN DE DATOS PARA LOS 4 GRÁFICOS MULTIANUALES DEL DIRECTOR
-  // =========================================================================
+  // Preparación de datos para los gráficos históricos
   const { matrizIngresosAnual, matrizPersonasAnual, maxIngresoMillones, maxPersonasMes } = useMemo(() => {
     const aniosDisponibles = [2022, 2023, 2024, 2025, 2026];
     const mapaIng: Record<number, number[]> = {};
@@ -416,7 +410,6 @@ export default function DashboardUnificadoPage() {
       }
     });
 
-    // Calcular topes máximos para escalar las barras proporcionalmente
     let maxIng = 25000000;
     let maxPer = 3500;
 
@@ -433,13 +426,12 @@ export default function DashboardUnificadoPage() {
     };
   }, [historicoMensual]);
 
-  // Colores corporativos para los años en los gráficos
-  const coloresAnios: Record<number, { bg: string; text: string; hex: string }> = {
-    2022: { bg: 'bg-blue-600', text: 'text-blue-400', hex: '#2563eb' },
-    2023: { bg: 'bg-amber-600', text: 'text-amber-400', hex: '#d97706' },
-    2024: { bg: 'bg-slate-400', text: 'text-slate-300', hex: '#94a3b8' },
-    2025: { bg: 'bg-yellow-400', text: 'text-yellow-300', hex: '#facc15' },
-    2026: { bg: 'bg-sky-400', text: 'text-sky-300', hex: '#38bdf8' }
+  const coloresAnios: Record<number, { bg: string; text: string }> = {
+    2022: { bg: 'bg-blue-600', text: 'text-blue-400' },
+    2023: { bg: 'bg-amber-600', text: 'text-amber-400' },
+    2024: { bg: 'bg-slate-400', text: 'text-slate-300' },
+    2025: { bg: 'bg-yellow-400', text: 'text-yellow-300' },
+    2026: { bg: 'bg-sky-400', text: 'text-sky-300' }
   };
 
   // Impresión
@@ -491,30 +483,13 @@ export default function DashboardUnificadoPage() {
               <div>Emisión: ${new Date().toLocaleDateString('es-CL')}</div>
             </div>
           </div>
-
           <div class="summary-cards">
-            <div class="card">
-              <span>Recaudación Total</span>
-              <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
-            </div>
-            <div class="card">
-              <span>Afluencia Total</span>
-              <div class="val">${totalPublico} pers.</div>
-            </div>
-            <div class="card">
-              <span>Promedio Día ($)</span>
-              <div class="val">$${ingresosPromedioDia.toLocaleString('es-CL')}</div>
-            </div>
-            <div class="card">
-              <span>Personas/Día</span>
-              <div class="val">${personasPromedioDia} pers.</div>
-            </div>
-            <div class="card">
-              <span>Promedio Mes</span>
-              <div class="val">$${promedioMensual.toLocaleString('es-CL')}</div>
-            </div>
+            <div class="card"><span>Recaudación Total</span><div class="val">$${totalIngresos.toLocaleString('es-CL')}</div></div>
+            <div class="card"><span>Afluencia Total</span><div class="val">${totalPublico} pers.</div></div>
+            <div class="card"><span>Promedio Día ($)</span><div class="val">$${ingresosPromedioDia.toLocaleString('es-CL')}</div></div>
+            <div class="card"><span>Personas/Día</span><div class="val">${personasPromedioDia} pers.</div></div>
+            <div class="card"><span>Promedio Mes</span><div class="val">$${promedioMensual.toLocaleString('es-CL')}</div></div>
           </div>
-
           <div class="grid">
             <div class="col">
               <h2>1. Ingresos por Canal / Origen</h2>
@@ -529,7 +504,6 @@ export default function DashboardUnificadoPage() {
                 </tbody>
               </table>
             </div>
-
             <div class="col">
               <h2>2. Liquidación por Medios de Pago</h2>
               <table>
@@ -544,7 +518,6 @@ export default function DashboardUnificadoPage() {
               </table>
             </div>
           </div>
-
           <div>
             <h2>3. Desglose de Afluencia de Visitantes</h2>
             <table>
@@ -556,20 +529,11 @@ export default function DashboardUnificadoPage() {
               </tbody>
             </table>
           </div>
-
-          <div class="footer-info">
-            Documento Oficial generado por Sistema de Control Parque Acuario Puyehue
-          </div>
-
+          <div class="footer-info">Documento Oficial generado por Sistema de Control Parque Acuario Puyehue</div>
           <script>
             const img = document.getElementById('logoImg');
             const dispararImpresion = () => { window.print(); };
-            if (img && !img.complete) {
-              img.onload = dispararImpresion;
-              img.onerror = dispararImpresion;
-            } else {
-              dispararImpresion();
-            }
+            if (img && !img.complete) { img.onload = dispararImpresion; img.onerror = dispararImpresion; } else { dispararImpresion(); }
           </script>
         </body>
       </html>
@@ -656,83 +620,33 @@ export default function DashboardUnificadoPage() {
           </button>
         </div>
 
-        {/* ========================================================= */}
         {/* VISTA 1: EJECUTIVO & OPERACIONAL */}
-        {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
-                  <CalendarIcon className="w-4 h-4 text-sky-400" /> Rango:
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">Desde:</span>
-                  <input
-                    type="date"
-                    value={fechaDesde}
-                    onChange={(e) => { setFechaDesde(e.target.value); setAplicarFechas(true); }}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">Hasta:</span>
-                  <input
-                    type="date"
-                    value={fechaHasta}
-                    onChange={(e) => { setFechaHasta(e.target.value); setAplicarFechas(true); }}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
-                  />
-                </div>
-                <button onClick={resetFechas} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition">
-                  <RotateCcw className="w-3 h-3" /> Ver Todo
-                </button>
+                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5"><CalendarIcon className="w-4 h-4 text-sky-400" /> Rango:</span>
+                <div className="flex items-center gap-2"><span className="text-xs text-slate-400">Desde:</span><input type="date" value={fechaDesde} onChange={(e) => { setFechaDesde(e.target.value); setAplicarFechas(true); }} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500" /></div>
+                <div className="flex items-center gap-2"><span className="text-xs text-slate-400">Hasta:</span><input type="date" value={fechaHasta} onChange={(e) => { setFechaHasta(e.target.value); setAplicarFechas(true); }} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500" /></div>
+                <button onClick={resetFechas} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"><RotateCcw className="w-3 h-3" /> Ver Todo</button>
               </div>
               <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-                <button onClick={() => setVistaOperativa('calendario')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'calendario' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}>
-                  <CalendarIcon className="w-3.5 h-3.5" /> Calendario
-                </button>
-                <button onClick={() => setVistaOperativa('lista')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'lista' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}>
-                  <List className="w-3.5 h-3.5" /> Lista
-                </button>
+                <button onClick={() => setVistaOperativa('calendario')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'calendario' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}><CalendarIcon className="w-3.5 h-3.5" /> Calendario</button>
+                <button onClick={() => setVistaOperativa('lista')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'lista' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}><List className="w-3.5 h-3.5" /> Lista</button>
               </div>
             </div>
 
-            {/* Tarjetas Promedios */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span>
-                <div className="text-xl font-mono font-black text-white mt-0.5">{diasUnicosOperados} <span className="text-xs font-normal text-slate-400">días</span></div>
-                <div className="text-[9px] text-slate-400 mt-0.5">Jornadas con movimiento</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
-                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Personas Promedio Día</span>
-                <div className="text-xl font-mono font-black text-sky-300 mt-0.5">{personasPromedioDia} <span className="text-xs font-normal text-slate-400">pers.</span></div>
-                <div className="text-[9px] text-slate-400 mt-0.5">Afluencia media diaria</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
-                <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Promedio Día</span>
-                <div className="text-xl font-mono font-black text-teal-300 mt-0.5">${ingresosPromedioDia.toLocaleString('es-CL')}</div>
-                <div className="text-[9px] text-slate-400 mt-0.5">Venta media por jornada</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
-                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Promedio Mes</span>
-                <div className="text-xl font-mono font-black text-indigo-300 mt-0.5">${promedioMensual.toLocaleString('es-CL')}</div>
-                <div className="text-[9px] text-slate-400 mt-0.5">Rendimiento mensualizado</div>
-              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow"><span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span><div className="text-xl font-mono font-black text-white mt-0.5">{diasUnicosOperados} <span className="text-xs font-normal text-slate-400">días</span></div><div className="text-[9px] text-slate-400 mt-0.5">Jornadas con movimiento</div></div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow"><span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Personas Promedio Día</span><div className="text-xl font-mono font-black text-sky-300 mt-0.5">{personasPromedioDia} <span className="text-xs font-normal text-slate-400">pers.</span></div><div className="text-[9px] text-slate-400 mt-0.5">Afluencia media diaria</div></div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow"><span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Promedio Día</span><div className="text-xl font-mono font-black text-teal-300 mt-0.5">${ingresosPromedioDia.toLocaleString('es-CL')}</div><div className="text-[9px] text-slate-400 mt-0.5">Venta media por jornada</div></div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow"><span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Promedio Mes</span><div className="text-xl font-mono font-black text-indigo-300 mt-0.5">${promedioMensual.toLocaleString('es-CL')}</div><div className="text-[9px] text-slate-400 mt-0.5">Rendimiento mensualizado</div></div>
             </div>
 
-            {/* Recaudación Total */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-teal-400 tracking-wider">Control Financiero de Ingresos</span>
-                  <h3 className="text-base font-bold text-white">Recaudación Consolidada y Medios de Pago</h3>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400">Total Período:</span>
-                  <div className="text-2xl font-mono font-black text-teal-300">${totalIngresos.toLocaleString('es-CL')}</div>
-                </div>
+                <div><span className="text-[10px] uppercase font-bold text-teal-400 tracking-wider">Control Financiero de Ingresos</span><h3 className="text-base font-bold text-white">Recaudación Consolidada y Medios de Pago</h3></div>
+                <div className="text-right"><span className="text-xs text-slate-400">Total Período:</span><div className="text-2xl font-mono font-black text-teal-300">${totalIngresos.toLocaleString('es-CL')}</div></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
@@ -758,35 +672,18 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Afluencia Visitantes */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Afluencia y Visitantes</span>
-                  <h3 className="text-base font-bold text-white">Desglose de Personas por Canal de Acceso</h3>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400">Público Total:</span>
-                  <div className="text-2xl font-mono font-black text-sky-300">{totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span></div>
-                </div>
+                <div><span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Afluencia y Visitantes</span><h3 className="text-base font-bold text-white">Desglose de Personas por Canal de Acceso</h3></div>
+                <div className="text-right"><span className="text-xs text-slate-400">Público Total:</span><div className="text-2xl font-mono font-black text-sky-300">{totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span></div></div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
-                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visBoleteria} pers.</div>
-                </div>
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
-                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visColegios} pers.</div>
-                </div>
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
-                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visOperadores} pers.</div>
-                </div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl"><div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div><div className="text-lg font-mono font-bold text-white mt-0.5">{visBoleteria} pers.</div></div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl"><div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div><div className="text-lg font-mono font-bold text-white mt-0.5">{visColegios} pers.</div></div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl"><div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div><div className="text-lg font-mono font-bold text-white mt-0.5">{visOperadores} pers.</div></div>
               </div>
             </div>
 
-            {/* Calendario */}
             {vistaOperativa === 'calendario' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
@@ -818,7 +715,6 @@ export default function DashboardUnificadoPage() {
               </div>
             )}
 
-            {/* Lista Detallada */}
             {vistaOperativa === 'lista' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Movimientos en el Rango Seleccionado ({movimientos.length})</h3>
@@ -845,9 +741,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 2: FLUJO DE CAJA REAL & PROYECCIÓN INTEGRADA */}
-        {/* ========================================================= */}
+        {/* VISTA 2: FLUJO DE CAJA REAL */}
         {seccion === 'flujocaja' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
@@ -1022,59 +916,11 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 3: GRÁFICAS GENERALES & SUITE HISTÓRICA COMPLETA    */}
-        {/* ========================================================= */}
+        {/* VISTA 3: GRÁFICAS GENERALES & SUITE HISTÓRICA */}
         {seccion === 'graficas' && (
           <div className="space-y-8">
             
-            {/* GRÁFICO 1: PROYECCIÓN VS EJECUCIÓN 2025 (INGRESOS VS EGRESOS) */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
-                <div>
-                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Balance Mensualizado</span>
-                  <h3 className="text-base font-black text-white">Proyección vs Ejecución: Ingresos 2025 vs Egresos 2024</h3>
-                  <p className="text-xs text-slate-400">Contraste mes a mes del superávit de verano vs el invierno</p>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-semibold">
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500 inline-block" /> Ingresos 2025</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-600 inline-block" /> Egresos 2024 (Base)</span>
-                </div>
-              </div>
-
-              {/* Contenedor Gráfico de Barras Dobles */}
-              <div className="h-64 flex items-end justify-between gap-2 pt-6 px-2 border-b border-slate-700">
-                {nombresMeses.map((mes, idx) => {
-                  const ing2025 = matrizIngresosAnual[2025]?.[idx] || 0;
-                  const egr2024 = (matrizIngresosAnual[2024]?.[idx] ? [4437878, 4333109, 4213705, 3308723, 4431620, 3142317, 4328651, 2153811, 3563285, 2930576, 4216853, 4828710][idx] : 0);
-                  const alturaMax = 25000000;
-                  const pctIng = Math.min(100, Math.round((ing2025 / alturaMax) * 100));
-                  const pctEgr = Math.min(100, Math.round((egr2024 / alturaMax) * 100));
-
-                  return (
-                    <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
-                      <div className="w-full flex items-end justify-center gap-1 h-full">
-                        {/* Barra Ingreso */}
-                        <div 
-                          style={{ height: `${pctIng}%` }} 
-                          className="w-1/2 bg-blue-500 hover:bg-blue-400 rounded-t transition-all relative group-hover:brightness-110"
-                          title={`Ingresos 2025: $${ing2025.toLocaleString('es-CL')}`}
-                        />
-                        {/* Barra Egreso */}
-                        <div 
-                          style={{ height: `${pctEgr}%` }} 
-                          className="w-1/2 bg-amber-600 hover:bg-amber-500 rounded-t transition-all relative group-hover:brightness-110"
-                          title={`Egresos 2024: $${egr2024.toLocaleString('es-CL')}`}
-                        />
-                      </div>
-                      <span className="text-[10px] font-mono text-slate-400 capitalize">{mes.substring(0, 3)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* GRÁFICO 2: FACTURACIÓN MULTIANUAL EN MILLONES (2022 A 2026) */}
+            {/* GRÁFICO 1: FACTURACIÓN MULTIANUAL EN MILLONES (2022 A 2026) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -1091,7 +937,6 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
 
-              {/* Contenedor Gráfico de Barras Agrupadas por Año */}
               <div className="h-64 flex items-end justify-between gap-3 pt-6 px-2 border-b border-slate-700">
                 {nombresMeses.map((mes, idx) => (
                   <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
@@ -1115,7 +960,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* GRÁFICO 3: AFLUENCIA HISTÓRICA DE VISITANTES (PERSONAS POR MES 2022 A 2026) */}
+            {/* GRÁFICO 2: AFLUENCIA HISTÓRICA DE VISITANTES (PERSONAS POR MES 2022 A 2026) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -1132,7 +977,6 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
 
-              {/* Contenedor Gráfico de Personas */}
               <div className="h-64 flex items-end justify-between gap-3 pt-6 px-2 border-b border-slate-700">
                 {nombresMeses.map((mes, idx) => (
                   <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
@@ -1156,7 +1000,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* TABLA SÁBANA MULTIANUAL NUMÉRICA (IDÉNTICA AL EXCEL) */}
+            {/* TABLAS SÁBANAS MULTIANUALES */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6">
               
               {/* Tabla Ingresos por Año */}
@@ -1246,9 +1090,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 4: ESTADO DE RESULTADOS (P&L) */}
-        {/* ========================================================= */}
+        {/* VISTA 4: P&L */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
@@ -1262,9 +1104,7 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* VISTA 5: CLIENTES & COBRANZA */}
-        {/* ========================================================= */}
+        {/* VISTA 5: CLIENTES */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
