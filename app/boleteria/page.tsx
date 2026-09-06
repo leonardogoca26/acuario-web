@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CheckCircle2, AlertTriangle, ArrowLeft, Calculator } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, ArrowLeft, Calculator, Printer, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function BoleteriaPage() {
@@ -28,10 +28,31 @@ export default function BoleteriaPage() {
     observaciones: ''
   });
 
+  const [lista, setLista] = useState<any[]>([]);
   const [mensaje, setMensaje] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null);
   const [cargando, setCargando] = useState(false);
 
-  // Cálculos automáticos de personas, ingresos y arqueo
+  // Cargar historial de cierres
+  const cargarCierres = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cierre_boleteria')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (!error && data) {
+        setLista(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    cargarCierres();
+  }, []);
+
+  // Cálculos automáticos
   useEffect(() => {
     const totalPers = Number(form.adultos || 0) + Number(form.ninos || 0);
     const totalIng = Number(form.ventas_boleteria || 0) + Number(form.ventas_tienda || 0);
@@ -68,11 +89,69 @@ export default function BoleteriaPage() {
       if (error) throw error;
 
       setMensaje({ tipo: 'exito', texto: 'Cierre de boletería registrado exitosamente.' });
+      cargarCierres();
     } catch (err: any) {
       setMensaje({ tipo: 'error', texto: `Error al guardar: ${err.message || 'Error desconocido'}` });
     } finally {
       setCargando(false);
     }
+  };
+
+  // Función para eliminar / anular registro
+  const handleEliminar = async (id: number) => {
+    if (!confirm('¿Estás seguro de anular/eliminar este registro de cierre?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('cierre_boleteria')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setMensaje({ tipo: 'exito', texto: 'Registro anulado correctamente.' });
+      cargarCierres();
+    } catch (err: any) {
+      setMensaje({ tipo: 'error', texto: `Error al anular: ${err.message}` });
+    }
+  };
+
+  // Función para imprimir comprobante rápido
+  const handleImprimir = (item: any) => {
+    const ventana = window.open('', '_print', 'width=600,height=600');
+    if (!ventana) return;
+
+    ventana.document.write(`
+      <html>
+        <head>
+          <title>Comprobante Cierre #${item.id}</title>
+          <style>
+            body { font-family: monospace; padding: 20px; color: #111; }
+            h2 { text-align: center; border-bottom: 2px dashed #333; padding-bottom: 10px; }
+            .row { display: flex; justify-content: space-between; margin: 6px 0; }
+            .total { font-weight: bold; border-top: 1px solid #333; margin-top: 10px; padding-top: 5px; }
+          </style>
+        </head>
+        <body>
+          <h2>CIERRE DE BOLETERÍA #${item.id}</h2>
+          <div class="row"><span>Fecha:</span><span>${item.fecha}</span></div>
+          <div class="row"><span>Turno:</span><span>${item.turno}</span></div>
+          <div class="row"><span>Cajero:</span><span>${item.cajero}</span></div>
+          <div class="row"><span>Temporada:</span><span>${item.temporada}</span></div>
+          <hr/>
+          <div class="row"><span>Total Personas:</span><span>${item.total_personas} pers.</span></div>
+          <div class="row"><span>Ventas Ingresos:</span><span>$${Number(item.total_ingresos).toLocaleString('es-CL')}</span></div>
+          <hr/>
+          <div class="row"><span>Efectivo Caja:</span><span>$${Number(item.efectivo).toLocaleString('es-CL')}</span></div>
+          <div class="row"><span>POS Compra Aquí:</span><span>$${Number(item.pos_compra_aqui || 0).toLocaleString('es-CL')}</span></div>
+          <div class="row"><span>POS Transbank:</span><span>$${Number(item.pos_transbank || 0).toLocaleString('es-CL')}</span></div>
+          <div class="row"><span>Transferencias:</span><span>$${Number(item.transferencias).toLocaleString('es-CL')}</span></div>
+          <div class="row total"><span>Total Arqueado:</span><span>$${Number(item.total_arqueado).toLocaleString('es-CL')}</span></div>
+          <div class="row total"><span>Diferencia:</span><span>$${Number(item.diferencia).toLocaleString('es-CL')}</span></div>
+          <script>window.print(); window.close();</script>
+        </body>
+      </html>
+    `);
+    ventana.document.close();
   };
 
   return (
@@ -313,6 +392,64 @@ export default function BoleteriaPage() {
             </button>
           </form>
         </div>
+
+        {/* Tabla de Historial de Cierres con Correlativo, Imprimir y Anular */}
+        {lista.length > 0 && (
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
+            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Historial de Cierres de Boletería</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left text-slate-300">
+                <thead className="border-b border-slate-700 text-slate-400">
+                  <tr>
+                    <th className="py-2 px-2">N° ID</th>
+                    <th className="py-2 px-2">Fecha</th>
+                    <th className="py-2 px-2">Cajero</th>
+                    <th className="py-2 px-2">Total Ingresos</th>
+                    <th className="py-2 px-2">Compra Aquí</th>
+                    <th className="py-2 px-2">Transbank</th>
+                    <th className="py-2 px-2">Diferencia</th>
+                    <th className="py-2 px-2 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {lista.map((item) => (
+                    <tr key={item.id}>
+                      <td className="py-2 px-2 font-mono font-bold text-sky-400">#{item.id}</td>
+                      <td className="py-2 px-2">{item.fecha}</td>
+                      <td className="py-2 px-2 font-semibold text-white">{item.cajero}</td>
+                      <td className="py-2 px-2 font-mono text-teal-300">${Number(item.total_ingresos).toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-2 font-mono text-amber-300">${Number(item.pos_compra_aqui || 0).toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-2 font-mono text-amber-300">${Number(item.pos_transbank || 0).toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-2">
+                        <span className={`font-mono font-bold ${item.diferencia === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {item.diferencia === 0 ? '$0' : `$${Number(item.diferencia).toLocaleString('es-CL')}`}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => handleImprimir(item)}
+                          title="Imprimir Comprobante"
+                          className="p-1.5 bg-sky-950 text-sky-300 hover:bg-sky-900 rounded border border-sky-800 transition"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEliminar(item.id)}
+                          title="Anular Registro"
+                          className="p-1.5 bg-rose-950 text-rose-300 hover:bg-rose-900 rounded border border-rose-800 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
