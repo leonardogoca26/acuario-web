@@ -45,7 +45,7 @@ export default function DashboardUnificadoPage() {
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
 
-  // Datos fijos de referencia para proyecciones de caja
+  // Datos de referencia fijos para análisis financiero y caja
   const saldoDisponibleHoy = 8450000;
   const compromisosMes = [
     { cat: 'Proveedores', monto: 2300000, desc: 'Alimento de fauna, mantención acuarios' },
@@ -62,8 +62,8 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // Consulta a la tabla real 'cierre_boleteria'
-      let queryBol = supabase.from('cierre_boleteria').select('*').neq('estado', 'Anulado');
+      // 1. Cargar Boletería
+      let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
         if (fechaDesde) queryBol = queryBol.gte('fecha', fechaDesde);
@@ -71,38 +71,58 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
-      // Consulta a la tabla real 'convenios'
-      let queryConv = supabase.from('convenios').select('*').neq('estado', 'Anulado');
+      // 2. Cargar Convenios / Ingresos Dirección
+      let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
         if (fechaHasta) queryConv = queryConv.lte('fecha', fechaHasta);
       }
       const { data: dataConv } = await queryConv;
 
-      const mBol = (dataBol || []).map(b => ({
+      // Filtrar anulados de forma segura
+      const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
+      const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
+
+      const mBol = listaBol.map(b => ({
         tipo: 'Boletería',
+        subtipo: 'Boletería',
         id: b.id,
-        detalle: `Turno ${b.turno} - Cajero: ${b.cajero} (#${b.id})`,
+        detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
         fecha: b.fecha,
         temporada: b.temporada,
         monto: Number(b.total_ingresos || 0),
-        personas: Number(b.total_personas || 0)
+        personas: Number(b.total_personas || 0),
+        efectivo: Number(b.efectivo || 0),
+        pos_compra_aqui: Number(b.pos_compra_aqui || 0),
+        pos_transbank: Number(b.pos_transbank || 0),
+        transferencia: Number(b.transferencias || 0),
+        credito: 0
       }));
 
-      const mConv = (dataConv || []).map(c => ({
-        tipo: c.tipo_ingreso || 'Convenio',
-        id: c.id,
-        detalle: c.nombre_institucion,
-        fecha: c.fecha,
-        temporada: 'Verano (Alta)', // por defecto o general
-        monto: Number(c.total_recaudado || 0),
-        personas: Number(c.total_personas || 0)
-      }));
+      const mConv = listaConv.map(c => {
+        const monto = Number(c.total_recaudado || 0);
+        return {
+          tipo: 'Convenio',
+          subtipo: c.tipo_ingreso || 'Convenio / Delegación',
+          id: c.id,
+          detalle: c.nombre_institucion || 'Institución / Convenio',
+          fecha: c.fecha,
+          temporada: 'Verano (Alta)',
+          monto: monto,
+          personas: Number(c.total_personas || 0),
+          efectivo: 0,
+          pos_compra_aqui: 0,
+          pos_transbank: 0,
+          transferencia: monto, // Asumido transferencia bancaria institucional
+          credito: c.estado_pago === 'Pendiente' ? monto : 0
+        };
+      });
 
-      setMovimientos([...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
-      setConvenios(dataConv || []);
+      const todos = [...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+      setMovimientos(todos);
+      setConvenios(listaConv);
     } catch (e) {
-      console.error(e);
+      console.error('Error cargando datos:', e);
     } finally {
       setCargando(false);
     }
@@ -118,11 +138,11 @@ export default function DashboardUnificadoPage() {
     setAplicarFechas(false);
   };
 
-  // Cálculos Operativos
+  // Totales Operativos Consolidados
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Cálculos Calendario
+  // Calendario
   const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const diasEnMes = new Date(anioActual, mesActual + 1, 0).getDate();
   const diaSemanaInicio = new Date(anioActual, mesActual, 1).getDay();
@@ -136,13 +156,13 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Aging de Cartera
+  // Cartera Aging
   const hoyObj = new Date();
   const carteraConDias = convenios.map(c => {
     const fVisita = new Date(c.fecha);
     const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
     const facturado = Number(c.total_recaudado || 0);
-    const pendiente = facturado; // Asumimos exigible si está activo
+    const pendiente = facturado;
     return { ...c, diffDias, facturado, pendiente };
   });
 
@@ -156,7 +176,7 @@ export default function DashboardUnificadoPage() {
   const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
   const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
 
-  // Datos P&L
+  // P&L Data
   const ventasMesActual = 12450000;
   const ventasMesAnterior = 10800000;
   const ventasMesAnoAnterior = 9500000;
@@ -258,10 +278,13 @@ export default function DashboardUnificadoPage() {
           </button>
         </div>
 
-        {/* VISTA 1: EJECUTIVO & OPERACIONAL */}
+        {/* ========================================================= */}
+        {/* VISTA 1: EJECUTIVO & OPERACIONAL (DESGLOSE COMPLETO) */}
+        {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
             
+            {/* Barra de Filtro de Fechas y Selector de Modo */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
@@ -318,59 +341,121 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Tarjetas de Totales del Período - DESGLOSE DE INGRESOS Y VISITANTES */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              
-              {/* FILA 1: INGRESOS */}
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Total</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${totalIngresos.toLocaleString('es-CL')}
+            {/* SECCIÓN 1: RECAUDACIÓN TOTAL CON DESGLOSE POR CANAL Y MEDIO DE PAGO */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-teal-400 tracking-wider">Control Financiero de Ingresos</span>
+                  <h3 className="text-base font-bold text-white">Recaudación Consolidada y Medios de Pago</h3>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">{movimientos.length} registros cargados</div>
-              </div>
-              
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Recaudación Boletería</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}
+                <div className="text-right">
+                  <span className="text-xs text-slate-400">Total Período:</span>
+                  <div className="text-2xl font-mono font-black text-teal-300">
+                    ${totalIngresos.toLocaleString('es-CL')}
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Entradas y Tienda</div>
               </div>
 
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Recaudación Convenios</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${movimientos.filter(m => m.tipo !== 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Desglose por Canal / Origen */}
+                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                  <span className="text-[11px] font-bold uppercase text-sky-400 tracking-wider">Por Canal / Origen</span>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🎟️ Boletería & Tienda:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏫 Colegios / Delegaciones:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🚌 Operadores Turísticos:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏢 Arriendo de Salón:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-slate-300">☕ Cafetería:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Salón, Cafetería, Operadores</div>
+
+                {/* Desglose por Medio de Pago */}
+                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                  <span className="text-[11px] font-bold uppercase text-amber-400 tracking-wider">Por Medio de Pago</span>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💵 Efectivo en Caja:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💳 POS Compra Aquí:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💳 POS Transbank:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏦 Transferencias Electrónicas:</span>
+                      <span className="font-mono font-bold text-white">${movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-rose-300">📑 Cuentas por Cobrar / Cheques:</span>
+                      <span className="font-mono font-bold text-rose-300">${movimientos.reduce((acc, m) => acc + (m.credito || 0), 0).toLocaleString('es-CL')}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN 2: PÚBLICO TOTAL CON DESGLOSE POR CANAL */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Afluencia y Visitantes</span>
+                  <h3 className="text-base font-bold text-white">Desglose de Personas por Canal de Acceso</h3>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400">Público Total:</span>
+                  <div className="text-2xl font-mono font-black text-sky-300">
+                    {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
+                  </div>
+                </div>
               </div>
 
-              {/* FILA 2: Afluencia / Público */}
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Público Total</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  {totalPublico} <span className="text-sm font-normal text-slate-400">pers.</span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0)} pers.
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Afluencia en este rango</div>
-              </div>
 
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-orange-400 uppercase tracking-wider">Visitantes Boletería</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  {movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0)} <span className="text-sm font-normal text-slate-400">pers.</span>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0)} pers.
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Taquilla principal</div>
-              </div>
 
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider">Visitantes Convenios</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  {movimientos.filter(m => m.tipo !== 'Boletería').reduce((acc, m) => acc + m.personas, 0)} <span className="text-sm font-normal text-slate-400">pers.</span>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0)} pers.
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Delegaciones y Grupos</div>
               </div>
-
             </div>
 
             {/* VISTA CALENDARIO MENSUAL */}
@@ -517,7 +602,9 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
+        {/* ========================================================= */}
         {/* VISTA 2: GRÁFICAS GENERALES */}
+        {/* ========================================================= */}
         {seccion === 'graficas' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
@@ -556,13 +643,16 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* VISTA 3: P&L */}
+        {/* ========================================================= */}
+        {/* VISTA 3: ESTADO DE RESULTADOS (P&L) */}
+        {/* ========================================================= */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
                 Estado de Resultados Operacional (P&L)
               </h3>
+              
               <div className="space-y-3 font-mono text-xs">
                 <div className="flex justify-between items-center py-2 border-b border-slate-800 text-sm font-bold text-white">
                   <span className="font-sans">(=) Ingresos Operacionales</span>
@@ -584,6 +674,18 @@ export default function DashboardUnificadoPage() {
                   <span className="font-sans">(=) RESULTADO OPERACIONAL (EBITDA)</span>
                   <span>${resultadoOperacional.toLocaleString('es-CL')} (37.3%)</span>
                 </div>
+                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
+                  <span className="font-sans">(-) Gastos Financieros e Intereses</span>
+                  <span>-${gastosFinancieros.toLocaleString('es-CL')}</span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 text-slate-200 pl-4 font-semibold">
+                  <span className="font-sans">(=) Resultado Antes de Impuestos</span>
+                  <span>${resultadoAntesImp.toLocaleString('es-CL')}</span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
+                  <span className="font-sans">(-) Provisión Impuesto Renta (27%)</span>
+                  <span>-${impuestoRenta.toLocaleString('es-CL')}</span>
+                </div>
                 <div className="flex justify-between items-center py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300">
                   <span className="font-sans">(=) UTILIDAD NETA FINAL</span>
                   <span>${utilidadNeta.toLocaleString('es-CL')}</span>
@@ -593,7 +695,9 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* VISTA 4: CAJA */}
+        {/* ========================================================= */}
+        {/* VISTA 4: CAJA & COMPROMISOS */}
+        {/* ========================================================= */}
         {seccion === 'caja' && (
           <div className="space-y-6">
             <div className="bg-rose-950/70 border border-rose-500/50 rounded-2xl p-5 shadow-xl flex items-start gap-4">
@@ -629,7 +733,9 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* VISTA 5: COBRANZA */}
+        {/* ========================================================= */}
+        {/* VISTA 5: CLIENTES & COBRANZA */}
+        {/* ========================================================= */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
