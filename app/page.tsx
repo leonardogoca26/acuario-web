@@ -39,6 +39,11 @@ export default function DashboardUnificadoPage() {
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
+  // Estados de Paginación para sábanas de alta densidad
+  const [paginaSocio, setPaginaSocio] = useState(1);
+  const [paginaCartola, setPaginaCartola] = useState(1);
+  const registrosPorPagina = 30;
+
   // Acordeón expandible
   const [expandirIngresos, setExpandirIngresos] = useState(false);
   const [expandirEgresos, setExpandirEgresos] = useState(false);
@@ -68,7 +73,6 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. Cierre Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -77,7 +81,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
-      // 2. Convenios
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -85,7 +88,6 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
-      // 3. Cartola Banco
       let queryBanco = supabase.from('cartola_banco').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryBanco = queryBanco.gte('fecha', fechaDesde);
@@ -93,18 +95,16 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBanco } = await queryBanco.order('fecha', { ascending: false });
 
-      // 4. Egresos (Búsqueda flexible en egresos o gastos)
-      let listaEgresosCruda: any[] = [];
+      let dataEgr: any[] = [];
       const { data: resEgr, error: errEgr } = await supabase.from('egresos').select('*');
       if (!errEgr && resEgr) {
-        listaEgresosCruda = resEgr;
+        dataEgr = resEgr;
       } else {
         const { data: resGas } = await supabase.from('gastos').select('*');
-        if (resGas) listaEgresosCruda = resGas;
+        if (resGas) dataEgr = resGas;
       }
 
-      // Filtrar y normalizar egresos
-      const listaEgresosNormalizada = listaEgresosCruda
+      const listaEgresosNormalizada = dataEgr
         .filter(e => (e.estado || '').toLowerCase() !== 'anulado')
         .map(e => {
           const fStr = e.fecha || (e.created_at ? e.created_at.split('T')[0] : hoyStr);
@@ -124,7 +124,6 @@ export default function DashboardUnificadoPage() {
           return true;
         });
 
-      // 5. Histórico Mensual
       const { data: dataHist } = await supabase
         .from('historico_mensual')
         .select('*')
@@ -248,10 +247,6 @@ export default function DashboardUnificadoPage() {
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
   const totalIngresoRealCaja = totalEfectivoCaja + totalAbonosCartola + totalTransfConvenios;
 
-  const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-  const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
-
-  // Egresos calculados
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
@@ -429,6 +424,20 @@ export default function DashboardUnificadoPage() {
     const saldoNetoDia = totalEntradaReal - row.egresos;
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+  // Paginación de la Sábana Diaria
+  const totalPaginasSocio = Math.ceil(listaConciliacionOrdenada.length / registrosPorPagina) || 1;
+  const listaSocioPaginada = useMemo(() => {
+    const inicio = (paginaSocio - 1) * registrosPorPagina;
+    return listaConciliacionOrdenada.slice(inicio, inicio + registrosPorPagina);
+  }, [listaConciliacionOrdenada, paginaSocio]);
+
+  // Paginación de la Cartola / Abonos
+  const totalPaginasCartola = Math.ceil(abonosBanco.length / registrosPorPagina) || 1;
+  const listaCartolaPaginada = useMemo(() => {
+    const inicio = (paginaCartola - 1) * registrosPorPagina;
+    return abonosBanco.slice(inicio, inicio + registrosPorPagina);
+  }, [abonosBanco, paginaCartola]);
 
   // Gráficos multianuales
   const { matrizIngresosAnual, matrizPersonasAnual, maxIngresoMillones, maxPersonasMes } = useMemo(() => {
@@ -923,14 +932,18 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Sábana Diaria */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+            {/* Sábana Diaria (Paginada) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-700 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">Sábana Diaria de Entradas, Salidas y Saldo Neto</h3>
                   <p className="text-xs text-slate-400">Radiografía día a día: Dinero líquido entrado vs pagos realizados</p>
                 </div>
+                <div className="text-xs font-mono text-slate-400">
+                  Mostrando {listaSocioPaginada.length} de {listaConciliacionOrdenada.length} días
+                </div>
               </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left text-slate-300 font-mono">
                   <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
@@ -946,10 +959,10 @@ export default function DashboardUnificadoPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {listaConciliacionOrdenada.length === 0 ? (
+                    {listaSocioPaginada.length === 0 ? (
                       <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No hay movimientos registrados en el período seleccionado.</td></tr>
                     ) : (
-                      listaConciliacionOrdenada.map((row: any, idx) => (
+                      listaSocioPaginada.map((row: any, idx) => (
                         <tr key={idx} className="hover:bg-slate-800/40">
                           <td className="py-2 px-2 font-bold text-white">{row.fecha}</td>
                           <td className="py-2 px-2 text-right">${row.efectivo.toLocaleString('es-CL')}</td>
@@ -965,11 +978,34 @@ export default function DashboardUnificadoPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Controles de Paginación Sábana Diaria */}
+              {totalPaginasSocio > 1 && (
+                <div className="flex justify-between items-center pt-3 border-t border-slate-700 text-xs">
+                  <span className="text-slate-400">Página {paginaSocio} de {totalPaginasSocio}</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setPaginaSocio(p => Math.max(1, p - 1))}
+                      disabled={paginaSocio === 1}
+                      className="px-3 py-1 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-slate-300 font-bold"
+                    >
+                      Anterior
+                    </button>
+                    <button 
+                      onClick={() => setPaginaSocio(p => Math.min(totalPaginasSocio, p + 1))}
+                      disabled={paginaSocio === totalPaginasSocio}
+                      className="px-3 py-1 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-slate-300 font-bold"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* TABLA DE MOVIMIENTOS BANCARIOS REGISTRADOS (CON BOTÓN ANULAR) */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+            {/* TABLA DE MOVIMIENTOS BANCARIOS REGISTRADOS (Paginada) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-700 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">Abonos y Liquidaciones Bancarias Cargadas</h3>
                   <p className="text-xs text-slate-400">Listado de ingresos a cartola registrados con opción de anulación directa</p>
@@ -990,14 +1026,14 @@ export default function DashboardUnificadoPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {abonosBanco.length === 0 ? (
+                    {listaCartolaPaginada.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="py-6 text-center text-slate-500 italic">
                           No hay abonos bancarios registrados en este rango de fechas.
                         </td>
                       </tr>
                     ) : (
-                      abonosBanco.map((abono: any) => (
+                      listaCartolaPaginada.map((abono: any) => (
                         <tr key={abono.id} className="hover:bg-slate-800/40">
                           <td className="py-2 px-2 font-bold text-white">{abono.fecha}</td>
                           <td className="py-2 px-2">
@@ -1025,6 +1061,29 @@ export default function DashboardUnificadoPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Controles de Paginación Cartola */}
+              {totalPaginasCartola > 1 && (
+                <div className="flex justify-between items-center pt-3 border-t border-slate-700 text-xs">
+                  <span className="text-slate-400">Página {paginaCartola} de {totalPaginasCartola}</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setPaginaCartola(p => Math.max(1, p - 1))}
+                      disabled={paginaCartola === 1}
+                      className="px-3 py-1 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-slate-300 font-bold"
+                    >
+                      Anterior
+                    </button>
+                    <button 
+                      onClick={() => setPaginaCartola(p => Math.min(totalPaginasCartola, p + 1))}
+                      disabled={paginaCartola === totalPaginasCartola}
+                      className="px-3 py-1 bg-slate-900 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-slate-300 font-bold"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -1033,8 +1092,6 @@ export default function DashboardUnificadoPage() {
         {/* VISTA 3: GRÁFICAS GENERALES & SUITE HISTÓRICA */}
         {seccion === 'graficas' && (
           <div className="space-y-8">
-            
-            {/* GRÁFICO 1: HISTÓRICO DE INGRESOS POR MES Y AÑO */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -1074,7 +1131,6 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* GRÁFICO 2: AFLUENCIA HISTÓRICA DE VISITANTES */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
@@ -1114,15 +1170,10 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* TABLAS SÁBANAS MULTIANUALES */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6">
-              
-              {/* Tabla Ingresos por Año */}
               <div>
                 <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-teal-400">
-                    1. Matriz Numérica: Ingresos por Año ($)
-                  </h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-teal-400">1. Matriz Numérica: Ingresos por Año ($)</h4>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-right font-mono border-collapse">
@@ -1139,17 +1190,9 @@ export default function DashboardUnificadoPage() {
                         const totalAnio = fila.reduce((a, b) => a + b, 0);
                         return (
                           <tr key={anio} className="hover:bg-slate-900/40">
-                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5">
-                              <span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}
-                            </td>
-                            {fila.map((val, i) => (
-                              <td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
-                                {val > 0 ? val.toLocaleString('es-CL') : '-'}
-                              </td>
-                            ))}
-                            <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">
-                              ${totalAnio.toLocaleString('es-CL')}
-                            </td>
+                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}</td>
+                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                            <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">${totalAnio.toLocaleString('es-CL')}</td>
                           </tr>
                         );
                       })}
@@ -1158,12 +1201,9 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
 
-              {/* Tabla Personas por Año */}
               <div className="pt-4 border-t border-slate-700">
                 <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400">
-                    2. Matriz Numérica: Visitantes por Año (N° Personas)
-                  </h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400">2. Matriz Numérica: Visitantes por Año (N° Personas)</h4>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-right font-mono border-collapse">
@@ -1180,17 +1220,9 @@ export default function DashboardUnificadoPage() {
                         const totalAnio = fila.reduce((a, b) => a + b, 0);
                         return (
                           <tr key={anio} className="hover:bg-slate-900/40">
-                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5">
-                              <span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}
-                            </td>
-                            {fila.map((val, i) => (
-                              <td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
-                                {val > 0 ? val.toLocaleString('es-CL') : '-'}
-                              </td>
-                            ))}
-                            <td className="py-2 px-3 font-bold text-sky-300 bg-slate-950/60 border-l border-slate-700">
-                              {totalAnio.toLocaleString('es-CL')} pers.
-                            </td>
+                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}</td>
+                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                            <td className="py-2 px-3 font-bold text-sky-300 bg-slate-950/60 border-l border-slate-700">{totalAnio.toLocaleString('es-CL')} pers.</td>
                           </tr>
                         );
                       })}
@@ -1198,9 +1230,7 @@ export default function DashboardUnificadoPage() {
                   </table>
                 </div>
               </div>
-
             </div>
-
           </div>
         )}
 
