@@ -22,7 +22,8 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
-  AlertTriangle
+  AlertTriangle,
+  Users
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -54,6 +55,7 @@ export default function DashboardUnificadoPage() {
   const [convenios, setConvenios] = useState<any[]>([]);
   const [abonosBanco, setAbonosBanco] = useState<any[]>([]);
   const [egresos, setEgresos] = useState<any[]>([]);
+  const [historicoMensual, setHistoricoMensual] = useState<any[]>([]);
 
   // Modal registrar abono bancario
   const [modalAbonoAbierto, setModalAbonoAbierto] = useState(false);
@@ -101,6 +103,15 @@ export default function DashboardUnificadoPage() {
       } catch (err) {
         console.warn('Tabla egresos aún sin registros:', err);
       }
+
+      // Cargar base histórica de Supabase
+      const { data: dataHist } = await supabase
+        .from('historico_mensual')
+        .select('*')
+        .order('anio', { ascending: true })
+        .order('mes', { ascending: true });
+
+      setHistoricoMensual(dataHist || []);
 
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
       const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
@@ -224,7 +235,7 @@ export default function DashboardUnificadoPage() {
 
   // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
-  const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación' || m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.monto, 0);
+  const recColegios = movimientos.filter(m => m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
@@ -238,7 +249,7 @@ export default function DashboardUnificadoPage() {
 
   // Visitantes por Canal
   const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
-  const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación' || m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.personas, 0);
+  const visColegios = movimientos.filter(m => m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.personas, 0);
   const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
 
   // Calendario
@@ -255,9 +266,7 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // =========================================================================
-  // CÁLCULO DINÁMICO DE LA MATRIZ ANUAL (FILTRA CATEGORÍAS CON SALDO CERO)
-  // =========================================================================
+  // Cálculo dinámico de la matriz anual
   const { categoriasIngresosFiltradas, categoriasEgresosFiltradas, totalesIngresosMes, totalesEgresosMes, margenNetoMes, totalAnualIngresos, totalAnualEgresos, totalAnualMargen, porcentajeMargenAnual } = useMemo(() => {
     const mapaIngresosCat: Record<string, number[]> = {};
     const mapaEgresosCat: Record<string, number[]> = {};
@@ -265,7 +274,6 @@ export default function DashboardUnificadoPage() {
     const totIngMes = Array(12).fill(0);
     const totEgrMes = Array(12).fill(0);
 
-    // Agrupar Ingresos reales por categoría y mes (0 = Ene, 11 = Dic)
     movimientos.forEach(m => {
       if (!m.fecha) return;
       const mesIdx = new Date(m.fecha + 'T12:00:00').getMonth();
@@ -275,7 +283,6 @@ export default function DashboardUnificadoPage() {
       totIngMes[mesIdx] += m.monto;
     });
 
-    // Agrupar Egresos reales por categoría y mes
     egresos.forEach(e => {
       if (!e.fecha) return;
       const mesIdx = new Date(e.fecha + 'T12:00:00').getMonth();
@@ -286,7 +293,6 @@ export default function DashboardUnificadoPage() {
       totEgrMes[mesIdx] += monto;
     });
 
-    // FILTRO DINÁMICO: Eliminar categorías que sumen 0 en todo el año
     const catIngFiltradas = Object.keys(mapaIngresosCat)
       .map(cat => {
         const valores = mapaIngresosCat[cat];
@@ -389,6 +395,52 @@ export default function DashboardUnificadoPage() {
     const saldoNetoDia = totalEntradaReal - row.egresos;
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+  // =========================================================================
+  // PREPARACIÓN DE DATOS PARA LOS 4 GRÁFICOS MULTIANUALES DEL DIRECTOR
+  // =========================================================================
+  const { matrizIngresosAnual, matrizPersonasAnual, maxIngresoMillones, maxPersonasMes } = useMemo(() => {
+    const aniosDisponibles = [2022, 2023, 2024, 2025, 2026];
+    const mapaIng: Record<number, number[]> = {};
+    const mapaPer: Record<number, number[]> = {};
+
+    aniosDisponibles.forEach(a => {
+      mapaIng[a] = Array(12).fill(0);
+      mapaPer[a] = Array(12).fill(0);
+    });
+
+    historicoMensual.forEach(h => {
+      if (mapaIng[h.anio] && h.mes >= 1 && h.mes <= 12) {
+        mapaIng[h.anio][h.mes - 1] = Number(h.total_ingresos || 0);
+        mapaPer[h.anio][h.mes - 1] = Number(h.total_personas || 0);
+      }
+    });
+
+    // Calcular topes máximos para escalar las barras proporcionalmente
+    let maxIng = 25000000;
+    let maxPer = 3500;
+
+    aniosDisponibles.forEach(a => {
+      mapaIng[a].forEach(val => { if (val > maxIng) maxIng = val; });
+      mapaPer[a].forEach(val => { if (val > maxPer) maxPer = val; });
+    });
+
+    return {
+      matrizIngresosAnual: mapaIng,
+      matrizPersonasAnual: mapaPer,
+      maxIngresoMillones: maxIng,
+      maxPersonasMes: maxPer
+    };
+  }, [historicoMensual]);
+
+  // Colores corporativos para los años en los gráficos
+  const coloresAnios: Record<number, { bg: string; text: string; hex: string }> = {
+    2022: { bg: 'bg-blue-600', text: 'text-blue-400', hex: '#2563eb' },
+    2023: { bg: 'bg-amber-600', text: 'text-amber-400', hex: '#d97706' },
+    2024: { bg: 'bg-slate-400', text: 'text-slate-300', hex: '#94a3b8' },
+    2025: { bg: 'bg-yellow-400', text: 'text-yellow-300', hex: '#facc15' },
+    2026: { bg: 'bg-sky-400', text: 'text-sky-300', hex: '#38bdf8' }
+  };
 
   // Impresión
   const handleImprimirInforme = () => {
@@ -588,7 +640,7 @@ export default function DashboardUnificadoPage() {
             onClick={() => setSeccion('graficas')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'graficas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
           >
-            <BarChart3 className="w-4 h-4" /> Gráficas Generales
+            <BarChart3 className="w-4 h-4" /> Gráficas Generales & Histórico
           </button>
           <button
             onClick={() => setSeccion('resultados')}
@@ -609,100 +661,68 @@ export default function DashboardUnificadoPage() {
         {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
-            
-            {/* Barra de Filtro de Fechas */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
                   <CalendarIcon className="w-4 h-4 text-sky-400" /> Rango:
                 </span>
-                
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400">Desde:</span>
                   <input
                     type="date"
                     value={fechaDesde}
-                    onChange={(e) => {
-                      setFechaDesde(e.target.value);
-                      setAplicarFechas(true);
-                    }}
+                    onChange={(e) => { setFechaDesde(e.target.value); setAplicarFechas(true); }}
                     className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
                   />
                 </div>
-
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400">Hasta:</span>
                   <input
                     type="date"
                     value={fechaHasta}
-                    onChange={(e) => {
-                      setFechaHasta(e.target.value);
-                      setAplicarFechas(true);
-                    }}
+                    onChange={(e) => { setFechaHasta(e.target.value); setAplicarFechas(true); }}
                     className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-sky-500"
                   />
                 </div>
-
-                <button
-                  onClick={resetFechas}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
-                >
+                <button onClick={resetFechas} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition">
                   <RotateCcw className="w-3 h-3" /> Ver Todo
                 </button>
               </div>
-
               <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-                <button
-                  onClick={() => setVistaOperativa('calendario')}
-                  className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'calendario' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                >
+                <button onClick={() => setVistaOperativa('calendario')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'calendario' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}>
                   <CalendarIcon className="w-3.5 h-3.5" /> Calendario
                 </button>
-                <button
-                  onClick={() => setVistaOperativa('lista')}
-                  className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'lista' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                >
+                <button onClick={() => setVistaOperativa('lista')} className={`flex items-center gap-1 px-3 py-1 rounded-lg transition ${vistaOperativa === 'lista' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}>
                   <List className="w-3.5 h-3.5" /> Lista
                 </button>
               </div>
             </div>
 
-            {/* SECCIÓN PROMEDIOS CLAVE */}
+            {/* Tarjetas Promedios */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span>
-                <div className="text-xl font-mono font-black text-white mt-0.5">
-                  {diasUnicosOperados} <span className="text-xs font-normal text-slate-400">días</span>
-                </div>
+                <div className="text-xl font-mono font-black text-white mt-0.5">{diasUnicosOperados} <span className="text-xs font-normal text-slate-400">días</span></div>
                 <div className="text-[9px] text-slate-400 mt-0.5">Jornadas con movimiento</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Personas Promedio Día</span>
-                <div className="text-xl font-mono font-black text-sky-300 mt-0.5">
-                  {personasPromedioDia} <span className="text-xs font-normal text-slate-400">pers.</span>
-                </div>
+                <div className="text-xl font-mono font-black text-sky-300 mt-0.5">{personasPromedioDia} <span className="text-xs font-normal text-slate-400">pers.</span></div>
                 <div className="text-[9px] text-slate-400 mt-0.5">Afluencia media diaria</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Promedio Día</span>
-                <div className="text-xl font-mono font-black text-teal-300 mt-0.5">
-                  ${ingresosPromedioDia.toLocaleString('es-CL')}
-                </div>
+                <div className="text-xl font-mono font-black text-teal-300 mt-0.5">${ingresosPromedioDia.toLocaleString('es-CL')}</div>
                 <div className="text-[9px] text-slate-400 mt-0.5">Venta media por jornada</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Promedio Mes</span>
-                <div className="text-xl font-mono font-black text-indigo-300 mt-0.5">
-                  ${promedioMensual.toLocaleString('es-CL')}
-                </div>
+                <div className="text-xl font-mono font-black text-indigo-300 mt-0.5">${promedioMensual.toLocaleString('es-CL')}</div>
                 <div className="text-[9px] text-slate-400 mt-0.5">Rendimiento mensualizado</div>
               </div>
             </div>
 
-            {/* SECCIÓN 1: RECAUDACIÓN TOTAL */}
+            {/* Recaudación Total */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
@@ -711,68 +731,34 @@ export default function DashboardUnificadoPage() {
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-slate-400">Total Período:</span>
-                  <div className="text-2xl font-mono font-black text-teal-300">
-                    ${totalIngresos.toLocaleString('es-CL')}
-                  </div>
+                  <div className="text-2xl font-mono font-black text-teal-300">${totalIngresos.toLocaleString('es-CL')}</div>
                 </div>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-sky-400 tracking-wider">Por Canal / Origen</span>
                   <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🎟️ Boletería & Tienda:</span>
-                      <span className="font-mono font-bold text-white">${recBoleteria.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🏫 Colegios / Delegaciones:</span>
-                      <span className="font-mono font-bold text-white">${recColegios.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🚌 Operadores Turísticos:</span>
-                      <span className="font-mono font-bold text-white">${recOperadores.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🏢 Arriendo de Salón:</span>
-                      <span className="font-mono font-bold text-white">${recSalon.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-slate-300">☕ Cafetería:</span>
-                      <span className="font-mono font-bold text-white">${recCafeteria.toLocaleString('es-CL')}</span>
-                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">🎟️ Boletería & Tienda:</span><span className="font-mono font-bold text-white">${recBoleteria.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">🏫 Colegios / Delegaciones:</span><span className="font-mono font-bold text-white">${recColegios.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">🚌 Operadores Turísticos:</span><span className="font-mono font-bold text-white">${recOperadores.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">🏢 Arriendo de Salón:</span><span className="font-mono font-bold text-white">${recSalon.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1"><span className="text-slate-300">☕ Cafetería:</span><span className="font-mono font-bold text-white">${recCafeteria.toLocaleString('es-CL')}</span></div>
                   </div>
                 </div>
-
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-amber-400 tracking-wider">Por Medio de Pago</span>
                   <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">💵 Efectivo en Caja:</span>
-                      <span className="font-mono font-bold text-white">${recEfectivo.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">💳 POS Compra Aquí:</span>
-                      <span className="font-mono font-bold text-white">${recCompraAqui.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">💳 POS Transbank:</span>
-                      <span className="font-mono font-bold text-white">${recTransbank.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🏦 Transferencias Bancarias:</span>
-                      <span className="font-mono font-bold text-white">${recTransf.toLocaleString('es-CL')}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-rose-300">📑 Cuentas por Cobrar / Cheques:</span>
-                      <span className="font-mono font-bold text-rose-300">${recCredito.toLocaleString('es-CL')}</span>
-                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">💵 Efectivo en Caja:</span><span className="font-mono font-bold text-white">${recEfectivo.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">💳 POS Compra Aquí:</span><span className="font-mono font-bold text-white">${recCompraAqui.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">💳 POS Transbank:</span><span className="font-mono font-bold text-white">${recTransbank.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800"><span className="text-slate-300">🏦 Transferencias Bancarias:</span><span className="font-mono font-bold text-white">${recTransf.toLocaleString('es-CL')}</span></div>
+                    <div className="flex justify-between items-center py-1"><span className="text-rose-300">📑 Cuentas por Cobrar / Cheques:</span><span className="font-mono font-bold text-rose-300">${recCredito.toLocaleString('es-CL')}</span></div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* SECCIÓN 2: PÚBLICO TOTAL */}
+            {/* Afluencia Visitantes */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
@@ -781,106 +767,50 @@ export default function DashboardUnificadoPage() {
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-slate-400">Público Total:</span>
-                  <div className="text-2xl font-mono font-black text-sky-300">
-                    {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
-                  </div>
+                  <div className="text-2xl font-mono font-black text-sky-300">{totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span></div>
                 </div>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
-                    <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {visBoleteria} pers.
-                    </div>
-                  </div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
+                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visBoleteria} pers.</div>
                 </div>
-
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
-                    <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {visColegios} pers.
-                    </div>
-                  </div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
+                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visColegios} pers.</div>
                 </div>
-
-                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
-                    <div className="text-lg font-mono font-bold text-white mt-0.5">
-                      {visOperadores} pers.
-                    </div>
-                  </div>
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
+                  <div className="text-lg font-mono font-bold text-white mt-0.5">{visOperadores} pers.</div>
                 </div>
               </div>
             </div>
 
-            {/* VISTA CALENDARIO */}
+            {/* Calendario */}
             {vistaOperativa === 'calendario' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
-                  <h3 className="text-sm font-black text-white capitalize">
-                    {nombresMeses[mesActual]} {anioActual}
-                  </h3>
+                  <h3 className="text-sm font-black text-white capitalize">{nombresMeses[mesActual]} {anioActual}</h3>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        if (mesActual === 0) { setMesActual(11); setAnioActual(anioActual - 1); }
-                        else { setMesActual(mesActual - 1); }
-                        setDiaSeleccionado(null);
-                      }}
-                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (mesActual === 11) { setMesActual(0); setAnioActual(anioActual + 1); }
-                        else { setMesActual(mesActual + 1); }
-                        setDiaSeleccionado(null);
-                      }}
-                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    <button onClick={() => { if (mesActual === 0) { setMesActual(11); setAnioActual(anioActual - 1); } else { setMesActual(mesActual - 1); } setDiaSeleccionado(null); }} className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"><ChevronLeft className="w-4 h-4" /></button>
+                    <button onClick={() => { if (mesActual === 11) { setMesActual(0); setAnioActual(anioActual + 1); } else { setMesActual(mesActual + 1); } setDiaSeleccionado(null); }} className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-700 text-slate-300"><ChevronRight className="w-4 h-4" /></button>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold text-slate-400 mb-2 uppercase">
                   <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
                 </div>
-
                 <div className="grid grid-cols-7 gap-1.5">
-                  {Array.from({ length: desfaseSemana }).map((_, i) => (
-                    <div key={`emp-${i}`} className="min-h-[75px] bg-slate-900/30 rounded-xl" />
-                  ))}
-
+                  {Array.from({ length: desfaseSemana }).map((_, i) => (<div key={`emp-${i}`} className="min-h-[75px] bg-slate-900/30 rounded-xl" />))}
                   {Array.from({ length: diasEnMes }).map((_, i) => {
                     const dNum = i + 1;
                     const fStr = `${anioActual}-${(mesActual + 1).toString().padStart(2, '0')}-${dNum.toString().padStart(2, '0')}`;
                     const dataD = mapaPorFecha[fStr];
                     const hasV = Boolean(dataD && dataD.monto > 0);
                     const isSel = diaSeleccionado === fStr;
-
                     return (
-                      <div
-                        key={fStr}
-                        onClick={() => hasV && setDiaSeleccionado(fStr)}
-                        className={`min-h-[75px] p-2 rounded-xl border flex flex-col justify-between transition ${
-                          isSel ? 'border-sky-400 bg-sky-950/60 ring-2 ring-sky-500/40' : hasV ? 'border-slate-700 bg-slate-900 hover:border-sky-500 cursor-pointer' : 'border-slate-800/60 bg-slate-900/40 opacity-60'
-                        }`}
-                      >
+                      <div key={fStr} onClick={() => hasV && setDiaSeleccionado(fStr)} className={`min-h-[75px] p-2 rounded-xl border flex flex-col justify-between transition ${isSel ? 'border-sky-400 bg-sky-950/60 ring-2 ring-sky-500/40' : hasV ? 'border-slate-700 bg-slate-900 hover:border-sky-500 cursor-pointer' : 'border-slate-800/60 bg-slate-900/40 opacity-60'}`}>
                         <span className={`text-xs font-bold ${hasV ? 'text-white' : 'text-slate-500'}`}>{dNum}</span>
-                        {hasV ? (
-                          <div>
-                            <div className="text-[11px] font-mono font-bold text-teal-300">${Math.round(dataD.monto).toLocaleString('es-CL')}</div>
-                            <div className="text-[10px] text-slate-400">{dataD.personas} p.</div>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-600 italic">-</span>
-                        )}
+                        {hasV ? (<div><div className="text-[11px] font-mono font-bold text-teal-300">${Math.round(dataD.monto).toLocaleString('es-CL')}</div><div className="text-[10px] text-slate-400">{dataD.personas} p.</div></div>) : (<span className="text-[10px] text-slate-600 italic">-</span>)}
                       </div>
                     );
                   })}
@@ -888,37 +818,23 @@ export default function DashboardUnificadoPage() {
               </div>
             )}
 
-            {/* VISTA LISTA */}
+            {/* Lista Detallada */}
             {vistaOperativa === 'lista' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                  Movimientos en el Rango Seleccionado ({movimientos.length})
-                </h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Movimientos en el Rango Seleccionado ({movimientos.length})</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left text-slate-300">
                     <thead className="border-b border-slate-700 text-slate-400">
-                      <tr>
-                        <th className="py-2.5 px-2">Tipo</th>
-                        <th className="py-2.5 px-2">Fecha</th>
-                        <th className="py-2.5 px-2">Detalle / Turno</th>
-                        <th className="py-2.5 px-2">Público</th>
-                        <th className="py-2.5 px-2 text-right">Monto Recaudado</th>
-                      </tr>
+                      <tr><th className="py-2.5 px-2">Tipo</th><th className="py-2.5 px-2">Fecha</th><th className="py-2.5 px-2">Detalle / Turno</th><th className="py-2.5 px-2">Público</th><th className="py-2.5 px-2 text-right">Monto Recaudado</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
                       {movimientos.map((m, idx) => (
                         <tr key={idx} className="hover:bg-slate-800/40">
-                          <td className="py-2.5 px-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${m.tipo === 'Boletería' ? 'bg-sky-950 text-sky-300 border border-sky-800' : 'bg-teal-950 text-teal-300 border border-teal-800'}`}>
-                              {m.tipo}
-                            </span>
-                          </td>
+                          <td className="py-2.5 px-2"><span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${m.tipo === 'Boletería' ? 'bg-sky-950 text-sky-300 border border-sky-800' : 'bg-teal-950 text-teal-300 border border-teal-800'}`}>{m.tipo}</span></td>
                           <td className="py-2.5 px-2 font-mono">{m.fecha}</td>
                           <td className="py-2.5 px-2 font-semibold text-white">{m.detalle}</td>
                           <td className="py-2.5 px-2 font-mono">{m.personas} pers.</td>
-                          <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-300">
-                            ${m.monto.toLocaleString('es-CL')}
-                          </td>
+                          <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-300">${m.monto.toLocaleString('es-CL')}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -926,7 +842,6 @@ export default function DashboardUnificadoPage() {
                 </div>
               </div>
             )}
-
           </div>
         )}
 
@@ -935,108 +850,49 @@ export default function DashboardUnificadoPage() {
         {/* ========================================================= */}
         {seccion === 'flujocaja' && (
           <div className="space-y-6">
-            
-            {/* Barra de Filtro de Fechas Propia del Flujo */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
-                  <CalendarIcon className="w-4 h-4 text-emerald-400" /> Período Flujo:
-                </span>
-                
+                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5"><CalendarIcon className="w-4 h-4 text-emerald-400" /> Período Flujo:</span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400">Desde:</span>
-                  <input
-                    type="date"
-                    value={fechaDesde}
-                    onChange={(e) => {
-                      setFechaDesde(e.target.value);
-                      setAplicarFechas(true);
-                    }}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500"
-                  />
+                  <input type="date" value={fechaDesde} onChange={(e) => { setFechaDesde(e.target.value); setAplicarFechas(true); }} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500" />
                 </div>
-
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400">Hasta:</span>
-                  <input
-                    type="date"
-                    value={fechaHasta}
-                    onChange={(e) => {
-                      setFechaHasta(e.target.value);
-                      setAplicarFechas(true);
-                    }}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500"
-                  />
+                  <input type="date" value={fechaHasta} onChange={(e) => { setFechaHasta(e.target.value); setAplicarFechas(true); }} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500" />
                 </div>
-
-                <button
-                  onClick={resetFechas}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
-                >
-                  <RotateCcw className="w-3 h-3" /> Ver Todo
-                </button>
+                <button onClick={resetFechas} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"><RotateCcw className="w-3 h-3" /> Ver Todo</button>
               </div>
-
-              <button
-                onClick={() => setModalAbonoAbierto(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition"
-              >
+              <button onClick={() => setModalAbonoAbierto(true)} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition">
                 <PlusCircle className="w-4 h-4" /> Registrar Abono / Cartola
               </button>
             </div>
 
-            {/* RADIOGRAFÍA DE POSICIÓN NETA */}
+            {/* Radiografía Posición Neta */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Total Ingresos Reales</span>
-                  <TrendingUp className="w-4 h-4 text-teal-400" />
-                </div>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${totalIngresoRealCaja.toLocaleString('es-CL')}
-                </div>
+                <div className="flex items-center justify-between"><span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Total Ingresos Reales</span><TrendingUp className="w-4 h-4 text-teal-400" /></div>
+                <div className="text-2xl font-mono font-black text-white mt-1">${totalIngresoRealCaja.toLocaleString('es-CL')}</div>
                 <div className="text-[10px] text-slate-400 mt-1">Efectivo + Abonos TB/CA + Transf.</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Egresos del Período</span>
-                  <TrendingDown className="w-4 h-4 text-rose-400" />
-                </div>
-                <div className="text-2xl font-mono font-black text-rose-400 mt-1">
-                  -${totalEgresosReales.toLocaleString('es-CL')}
-                </div>
+                <div className="flex items-center justify-between"><span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Egresos del Período</span><TrendingDown className="w-4 h-4 text-rose-400" /></div>
+                <div className="text-2xl font-mono font-black text-rose-400 mt-1">-${totalEgresosReales.toLocaleString('es-CL')}</div>
                 <div className="text-[10px] text-slate-400 mt-1">{egresos.length} gastos contabilizados</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Saldo Neto Operativo</span>
-                  <Wallet className="w-4 h-4 text-amber-400" />
-                </div>
-                <div className={`text-2xl font-mono font-black mt-1 ${saldoNetoOperativo >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  ${saldoNetoOperativo.toLocaleString('es-CL')}
-                </div>
+                <div className="flex items-center justify-between"><span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Saldo Neto Operativo</span><Wallet className="w-4 h-4 text-amber-400" /></div>
+                <div className={`text-2xl font-mono font-black mt-1 ${saldoNetoOperativo >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${saldoNetoOperativo.toLocaleString('es-CL')}</div>
                 <div className="text-[10px] text-slate-400 mt-1">Margen de caja del rango</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Proyección Caja 30 Días</span>
-                  <AlertTriangle className="w-4 h-4 text-sky-400" />
-                </div>
-                <div className={`text-2xl font-mono font-black mt-1 ${liquidezProyectada30Dias >= 0 ? 'text-sky-300' : 'text-rose-400'}`}>
-                  ${liquidezProyectada30Dias.toLocaleString('es-CL')}
-                </div>
+                <div className="flex items-center justify-between"><span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Proyección Caja 30 Días</span><AlertTriangle className="w-4 h-4 text-sky-400" /></div>
+                <div className={`text-2xl font-mono font-black mt-1 ${liquidezProyectada30Dias >= 0 ? 'text-sky-300' : 'text-rose-400'}`}>${liquidezProyectada30Dias.toLocaleString('es-CL')}</div>
                 <div className="text-[10px] text-slate-400 mt-1">Caja hoy + Cobranza - Compromisos</div>
               </div>
-
             </div>
 
-            {/* ========================================================= */}
-            {/* MATRIZ ANUAL DINÁMICA (OCULTA CATEGORÍAS EN CERO)          */}
-            {/* ========================================================= */}
+            {/* Matriz Anual Acordeón */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
@@ -1059,121 +915,55 @@ export default function DashboardUnificadoPage() {
                   <thead>
                     <tr className="border-b border-slate-700 text-[11px] text-slate-400 uppercase">
                       <th className="text-left py-2 px-2.5 font-sans font-bold">Concepto</th>
-                      <th className="py-2 px-2">Ene</th>
-                      <th className="py-2 px-2">Feb</th>
-                      <th className="py-2 px-2">Mar</th>
-                      <th className="py-2 px-2">Abr</th>
-                      <th className="py-2 px-2">May</th>
-                      <th className="py-2 px-2">Jun</th>
-                      <th className="py-2 px-2">Jul</th>
-                      <th className="py-2 px-2">Ago</th>
-                      <th className="py-2 px-2">Sep</th>
-                      <th className="py-2 px-2">Oct</th>
-                      <th className="py-2 px-2">Nov</th>
-                      <th className="py-2 px-2">Dic</th>
+                      <th className="py-2 px-2">Ene</th><th className="py-2 px-2">Feb</th><th className="py-2 px-2">Mar</th><th className="py-2 px-2">Abr</th><th className="py-2 px-2">May</th><th className="py-2 px-2">Jun</th><th className="py-2 px-2">Jul</th><th className="py-2 px-2">Ago</th><th className="py-2 px-2">Sep</th><th className="py-2 px-2">Oct</th><th className="py-2 px-2">Nov</th><th className="py-2 px-2">Dic</th>
                       <th className="py-2 px-3 text-white font-bold bg-slate-950/60 border-l border-slate-700">Total Anual</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    
-                    {/* Fila Padre: Ingresos */}
-                    <tr 
-                      onClick={() => setExpandirIngresos(!expandirIngresos)}
-                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
-                    >
+                    <tr onClick={() => setExpandirIngresos(!expandirIngresos)} className="hover:bg-slate-700/40 cursor-pointer select-none transition">
                       <td className="text-left py-2.5 px-2.5 font-sans font-bold text-teal-300 flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-400 font-mono">{expandirIngresos ? '▼' : '►'}</span>
-                        (+) Ingresos
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirIngresos ? '▼' : '►'}</span> (+) Ingresos
                       </td>
-                      {totalesIngresosMes.map((val, idx) => (
-                        <td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-slate-200 font-semibold' : 'text-slate-600 italic'}`}>
-                          {val > 0 ? val.toLocaleString('es-CL') : '-'}
-                        </td>
-                      ))}
-                      <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">
-                        ${totalAnualIngresos.toLocaleString('es-CL')}
-                      </td>
+                      {totalesIngresosMes.map((val, idx) => (<td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-slate-200 font-semibold' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                      <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">${totalAnualIngresos.toLocaleString('es-CL')}</td>
                     </tr>
-
-                    {/* Desglose Ingresos Dinámico: Solo categorías con movimiento */}
                     {expandirIngresos && (
                       categoriasIngresosFiltradas.length === 0 ? (
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic">
-                          <td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados de ingresos en el período</td>
-                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic"><td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados en el período</td></tr>
                       ) : (
                         categoriasIngresosFiltradas.map((item, idx) => (
                           <tr key={idx} className="bg-slate-900/40 text-[11px] text-slate-400 hover:bg-slate-900/70">
-                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">
-                              • {item.cat}
-                            </td>
-                            {item.valores.map((v, i) => (
-                              <td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>
-                                {v > 0 ? v.toLocaleString('es-CL') : '-'}
-                              </td>
-                            ))}
-                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-teal-200">
-                              ${item.total.toLocaleString('es-CL')}
-                            </td>
+                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">• {item.cat}</td>
+                            {item.valores.map((v, i) => (<td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>{v > 0 ? v.toLocaleString('es-CL') : '-'}</td>))}
+                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-teal-200">${item.total.toLocaleString('es-CL')}</td>
                           </tr>
                         ))
                       )
                     )}
-
-                    {/* Fila Padre: Egresos */}
-                    <tr 
-                      onClick={() => setExpandirEgresos(!expandirEgresos)}
-                      className="hover:bg-slate-700/40 cursor-pointer select-none transition"
-                    >
+                    <tr onClick={() => setExpandirEgresos(!expandirEgresos)} className="hover:bg-slate-700/40 cursor-pointer select-none transition">
                       <td className="text-left py-2.5 px-2.5 font-sans font-bold text-rose-300 flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-400 font-mono">{expandirEgresos ? '▼' : '►'}</span>
-                        (-) Egresos
+                        <span className="text-[10px] text-slate-400 font-mono">{expandirEgresos ? '▼' : '►'}</span> (-) Egresos
                       </td>
-                      {totalesEgresosMes.map((val, idx) => (
-                        <td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-rose-300 font-semibold' : 'text-slate-600 italic'}`}>
-                          {val > 0 ? val.toLocaleString('es-CL') : '-'}
-                        </td>
-                      ))}
-                      <td className="py-2 px-3 font-bold text-rose-300 bg-slate-950/60 border-l border-slate-700">
-                        -${totalAnualEgresos.toLocaleString('es-CL')}
-                      </td>
+                      {totalesEgresosMes.map((val, idx) => (<td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-rose-300 font-semibold' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                      <td className="py-2 px-3 font-bold text-rose-300 bg-slate-950/60 border-l border-slate-700">-${totalAnualEgresos.toLocaleString('es-CL')}</td>
                     </tr>
-
-                    {/* Desglose Egresos Dinámico: Solo categorías con movimiento */}
                     {expandirEgresos && (
                       categoriasEgresosFiltradas.length === 0 ? (
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic">
-                          <td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados de egresos en el período</td>
-                        </tr>
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic"><td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados en el período</td></tr>
                       ) : (
                         categoriasEgresosFiltradas.map((item, idx) => (
                           <tr key={idx} className="bg-slate-900/40 text-[11px] text-slate-400 hover:bg-slate-900/70">
-                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">
-                              • {item.cat}
-                            </td>
-                            {item.valores.map((v, i) => (
-                              <td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>
-                                {v > 0 ? v.toLocaleString('es-CL') : '-'}
-                              </td>
-                            ))}
-                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-rose-300">
-                              -${item.total.toLocaleString('es-CL')}
-                            </td>
+                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">• {item.cat}</td>
+                            {item.valores.map((v, i) => (<td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>{v > 0 ? v.toLocaleString('es-CL') : '-'}</td>))}
+                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-rose-300">-${item.total.toLocaleString('es-CL')}</td>
                           </tr>
                         ))
                       )
                     )}
-
-                    {/* Fila Fija: Saldo Neto */}
                     <tr className="bg-slate-900/90 font-bold border-t-2 border-slate-700">
-                      <td className="text-left py-2.5 px-2.5 font-sans text-white">
-                        (=) Margen Neto
-                      </td>
+                      <td className="text-left py-2.5 px-2.5 font-sans text-white">(=) Margen Neto</td>
                       {margenNetoMes.map((val, idx) => (
-                        <td 
-                          key={idx} 
-                          className={`py-2 px-2 ${val > 0 ? 'text-emerald-400' : val < 0 ? 'text-rose-400' : 'text-slate-600 italic'}`}
-                        >
+                        <td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-emerald-400' : val < 0 ? 'text-rose-400' : 'text-slate-600 italic'}`}>
                           {val !== 0 ? (val > 0 ? `+${val.toLocaleString('es-CL')}` : val.toLocaleString('es-CL')) : '-'}
                         </td>
                       ))}
@@ -1181,23 +971,19 @@ export default function DashboardUnificadoPage() {
                         {totalAnualMargen >= 0 ? `+$${totalAnualMargen.toLocaleString('es-CL')}` : `-$${Math.abs(totalAnualMargen).toLocaleString('es-CL')}`}
                       </td>
                     </tr>
-
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* SÁBANA DIARIA DE CONCILIACIÓN */}
+            {/* Sábana Diaria */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                 <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    Sábana Diaria de Entradas, Salidas y Saldo Neto
-                  </h3>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Sábana Diaria de Entradas, Salidas y Saldo Neto</h3>
                   <p className="text-xs text-slate-400">Radiografía día a día: Dinero líquido entrado vs pagos realizados</p>
                 </div>
               </div>
-
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left text-slate-300 font-mono">
                   <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
@@ -1214,11 +1000,7 @@ export default function DashboardUnificadoPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {listaConciliacionOrdenada.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="py-6 text-center text-slate-500 italic">
-                          No hay movimientos registrados en el período seleccionado.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No hay movimientos registrados en el período seleccionado.</td></tr>
                     ) : (
                       listaConciliacionOrdenada.map((row: any, idx) => (
                         <tr key={idx} className="hover:bg-slate-800/40">
@@ -1227,15 +1009,9 @@ export default function DashboardUnificadoPage() {
                           <td className="py-2 px-2 text-right text-teal-300">${row.abono_transbank.toLocaleString('es-CL')}</td>
                           <td className="py-2 px-2 text-right text-teal-300">${row.abono_compra_aqui.toLocaleString('es-CL')}</td>
                           <td className="py-2 px-2 text-right text-indigo-300">${(row.abonos_otros + row.transferencias).toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-slate-950/40">
-                            +${row.ingreso_real.toLocaleString('es-CL')}
-                          </td>
-                          <td className="py-2 px-2 text-right font-bold text-rose-400">
-                            {row.egresos > 0 ? `-$${row.egresos.toLocaleString('es-CL')}` : '-'}
-                          </td>
-                          <td className={`py-2 px-2 text-right font-black bg-slate-900/80 ${row.saldo_neto >= 0 ? 'text-teal-300' : 'text-rose-400'}`}>
-                            ${row.saldo_neto.toLocaleString('es-CL')}
-                          </td>
+                          <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-slate-950/40">+${row.ingreso_real.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right font-bold text-rose-400">{row.egresos > 0 ? `-$${row.egresos.toLocaleString('es-CL')}` : '-'}</td>
+                          <td className={`py-2 px-2 text-right font-black bg-slate-900/80 ${row.saldo_neto >= 0 ? 'text-teal-300' : 'text-rose-400'}`}>${row.saldo_neto.toLocaleString('es-CL')}</td>
                         </tr>
                       ))
                     )}
@@ -1243,158 +1019,276 @@ export default function DashboardUnificadoPage() {
                 </table>
               </div>
             </div>
-
           </div>
         )}
 
-        {/* MODAL: REGISTRAR ABONO BANCARIO */}
-        {modalAbonoAbierto && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-              <button
-                onClick={() => setModalAbonoAbierto(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4">
-                <Landmark className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">Registrar Ingreso de Banco / Cartola</h3>
+        {/* ========================================================= */}
+        {/* VISTA 3: GRÁFICAS GENERALES & SUITE HISTÓRICA COMPLETA    */}
+        {/* ========================================================= */}
+        {seccion === 'graficas' && (
+          <div className="space-y-8">
+            
+            {/* GRÁFICO 1: PROYECCIÓN VS EJECUCIÓN 2025 (INGRESOS VS EGRESOS) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Balance Mensualizado</span>
+                  <h3 className="text-base font-black text-white">Proyección vs Ejecución: Ingresos 2025 vs Egresos 2024</h3>
+                  <p className="text-xs text-slate-400">Contraste mes a mes del superávit de verano vs el invierno</p>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-semibold">
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500 inline-block" /> Ingresos 2025</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-600 inline-block" /> Egresos 2024 (Base)</span>
+                </div>
               </div>
 
-              <form onSubmit={handleGuardarAbono} className="space-y-4 text-xs">
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Fecha Contable de Depósito</label>
-                  <input
-                    type="date"
-                    required
-                    value={formFechaAbono}
-                    onChange={(e) => setFormFechaAbono(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
-                  />
-                </div>
+              {/* Contenedor Gráfico de Barras Dobles */}
+              <div className="h-64 flex items-end justify-between gap-2 pt-6 px-2 border-b border-slate-700">
+                {nombresMeses.map((mes, idx) => {
+                  const ing2025 = matrizIngresosAnual[2025]?.[idx] || 0;
+                  const egr2024 = (matrizIngresosAnual[2024]?.[idx] ? [4437878, 4333109, 4213705, 3308723, 4431620, 3142317, 4328651, 2153811, 3563285, 2930576, 4216853, 4828710][idx] : 0);
+                  const alturaMax = 25000000;
+                  const pctIng = Math.min(100, Math.round((ing2025 / alturaMax) * 100));
+                  const pctEgr = Math.min(100, Math.round((egr2024 / alturaMax) * 100));
 
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Tipo de Abono</label>
-                  <select
-                    value={formTipoAbono}
-                    onChange={(e) => setFormTipoAbono(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                  >
-                    <option value="Liquidación Transbank">Liquidación Transbank</option>
-                    <option value="Liquidación Compra Aquí">Liquidación Compra Aquí</option>
-                    <option value="Pago Factura / Convenio">Pago Factura / Convenio</option>
-                    <option value="Transferencia Varia / Anticipo">Transferencia Varia / Anticipo</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Monto Líquido Depositado ($)</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="Ej: 594432"
-                    value={formMontoAbono}
-                    onChange={(e) => setFormMontoAbono(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-sm font-bold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Origen / Emisor (Opcional)</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Transbank, Municipalidad, Banco..."
-                    value={formOrigenAbono}
-                    onChange={(e) => setFormOrigenAbono(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Observación / N° Comprobante</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Abono ventas fin de semana"
-                    value={formObsAbono}
-                    onChange={(e) => setFormObsAbono(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setModalAbonoAbierto(false)}
-                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={guardandoAbono}
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-white shadow-lg disabled:opacity-50"
-                  >
-                    {guardandoAbono ? 'Guardando...' : 'Guardar en Cartola'}
-                  </button>
-                </div>
-              </form>
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                      <div className="w-full flex items-end justify-center gap-1 h-full">
+                        {/* Barra Ingreso */}
+                        <div 
+                          style={{ height: `${pctIng}%` }} 
+                          className="w-1/2 bg-blue-500 hover:bg-blue-400 rounded-t transition-all relative group-hover:brightness-110"
+                          title={`Ingresos 2025: $${ing2025.toLocaleString('es-CL')}`}
+                        />
+                        {/* Barra Egreso */}
+                        <div 
+                          style={{ height: `${pctEgr}%` }} 
+                          className="w-1/2 bg-amber-600 hover:bg-amber-500 rounded-t transition-all relative group-hover:brightness-110"
+                          title={`Egresos 2024: $${egr2024.toLocaleString('es-CL')}`}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400 capitalize">{mes.substring(0, 3)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
 
-        {/* VISTA 3: GRÁFICAS */}
-        {seccion === 'graficas' && (
-          <div className="space-y-6">
+            {/* GRÁFICO 2: FACTURACIÓN MULTIANUAL EN MILLONES (2022 A 2026) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-4">Ventas y Utilidad</h3>
-              <p className="text-xs text-slate-400">Contraste entre facturado y ganancia real en bolsillo</p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
+                <div>
+                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Histórico de Ventas</span>
+                  <h3 className="text-base font-black text-white">Facturación Mensual en Millones de Pesos (2022 - 2026)</h3>
+                  <p className="text-xs text-slate-400">Comparativa de ingresos mes a mes entre todas las temporadas registradas</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
+                  {[2022, 2023, 2024, 2025, 2026].map(anio => (
+                    <span key={anio} className="flex items-center gap-1">
+                      <span className={`w-3 h-3 rounded ${coloresAnios[anio].bg} inline-block`} /> {anio}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contenedor Gráfico de Barras Agrupadas por Año */}
+              <div className="h-64 flex items-end justify-between gap-3 pt-6 px-2 border-b border-slate-700">
+                {nombresMeses.map((mes, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                    <div className="w-full flex items-end justify-center gap-0.5 h-full">
+                      {[2022, 2023, 2024, 2025, 2026].map(anio => {
+                        const val = matrizIngresosAnual[anio]?.[idx] || 0;
+                        const pct = val > 0 ? Math.min(100, Math.round((val / maxIngresoMillones) * 100)) : 0;
+                        return (
+                          <div 
+                            key={anio}
+                            style={{ height: `${pct}%` }} 
+                            className={`w-1/5 ${coloresAnios[anio].bg} hover:brightness-125 rounded-t transition-all`}
+                            title={`${anio} - ${mes}: $${val.toLocaleString('es-CL')}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400 capitalize">{mes.substring(0, 3)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* GRÁFICO 3: AFLUENCIA HISTÓRICA DE VISITANTES (PERSONAS POR MES 2022 A 2026) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
+                <div>
+                  <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">Afluencia y Demanda</span>
+                  <h3 className="text-base font-black text-white">N° de Visitantes Mensuales (2022 - 2026)</h3>
+                  <p className="text-xs text-slate-400">Evolución de público por mes: picos de verano y vacaciones de invierno</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
+                  {[2022, 2023, 2024, 2025, 2026].map(anio => (
+                    <span key={anio} className="flex items-center gap-1">
+                      <span className={`w-3 h-3 rounded ${coloresAnios[anio].bg} inline-block`} /> {anio}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contenedor Gráfico de Personas */}
+              <div className="h-64 flex items-end justify-between gap-3 pt-6 px-2 border-b border-slate-700">
+                {nombresMeses.map((mes, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                    <div className="w-full flex items-end justify-center gap-0.5 h-full">
+                      {[2022, 2023, 2024, 2025, 2026].map(anio => {
+                        const val = matrizPersonasAnual[anio]?.[idx] || 0;
+                        const pct = val > 0 ? Math.min(100, Math.round((val / maxPersonasMes) * 100)) : 0;
+                        return (
+                          <div 
+                            key={anio}
+                            style={{ height: `${pct}%` }} 
+                            className={`w-1/5 ${coloresAnios[anio].bg} hover:brightness-125 rounded-t transition-all`}
+                            title={`${anio} - ${mes}: ${val} visitantes`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400 capitalize">{mes.substring(0, 3)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* TABLA SÁBANA MULTIANUAL NUMÉRICA (IDÉNTICA AL EXCEL) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6">
+              
+              {/* Tabla Ingresos por Año */}
+              <div>
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-teal-400">
+                    1. Matriz Numérica: Ingresos por Año ($)
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right font-mono border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-700 text-[11px] text-slate-400 uppercase">
+                        <th className="text-left py-2 px-2 font-sans">Año</th>
+                        <th className="py-2 px-2">Ene</th><th className="py-2 px-2">Feb</th><th className="py-2 px-2">Mar</th><th className="py-2 px-2">Abr</th><th className="py-2 px-2">May</th><th className="py-2 px-2">Jun</th><th className="py-2 px-2">Jul</th><th className="py-2 px-2">Ago</th><th className="py-2 px-2">Sep</th><th className="py-2 px-2">Oct</th><th className="py-2 px-2">Nov</th><th className="py-2 px-2">Dic</th>
+                        <th className="py-2 px-3 text-white font-bold bg-slate-950/60 border-l border-slate-700">Total Anual</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {[2022, 2023, 2024, 2025, 2026].map(anio => {
+                        const fila = matrizIngresosAnual[anio] || Array(12).fill(0);
+                        const totalAnio = fila.reduce((a, b) => a + b, 0);
+                        return (
+                          <tr key={anio} className="hover:bg-slate-900/40">
+                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5">
+                              <span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}
+                            </td>
+                            {fila.map((val, i) => (
+                              <td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
+                                {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                              </td>
+                            ))}
+                            <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">
+                              ${totalAnio.toLocaleString('es-CL')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Tabla Personas por Año */}
+              <div className="pt-4 border-t border-slate-700">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400">
+                    2. Matriz Numérica: Visitantes por Año (N° Personas)
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right font-mono border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-700 text-[11px] text-slate-400 uppercase">
+                        <th className="text-left py-2 px-2 font-sans">Año</th>
+                        <th className="py-2 px-2">Ene</th><th className="py-2 px-2">Feb</th><th className="py-2 px-2">Mar</th><th className="py-2 px-2">Abr</th><th className="py-2 px-2">May</th><th className="py-2 px-2">Jun</th><th className="py-2 px-2">Jul</th><th className="py-2 px-2">Ago</th><th className="py-2 px-2">Sep</th><th className="py-2 px-2">Oct</th><th className="py-2 px-2">Nov</th><th className="py-2 px-2">Dic</th>
+                        <th className="py-2 px-3 text-white font-bold bg-slate-950/60 border-l border-slate-700">Total Personas</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {[2022, 2023, 2024, 2025, 2026].map(anio => {
+                        const fila = matrizPersonasAnual[anio] || Array(12).fill(0);
+                        const totalAnio = fila.reduce((a, b) => a + b, 0);
+                        return (
+                          <tr key={anio} className="hover:bg-slate-900/40">
+                            <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5">
+                              <span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}
+                            </td>
+                            {fila.map((val, i) => (
+                              <td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
+                                {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                              </td>
+                            ))}
+                            <td className="py-2 px-3 font-bold text-sky-300 bg-slate-950/60 border-l border-slate-700">
+                              {totalAnio.toLocaleString('es-CL')} pers.
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
           </div>
         )}
 
-        {/* VISTA 4: P&L */}
+        {/* ========================================================= */}
+        {/* VISTA 4: ESTADO DE RESULTADOS (P&L) */}
+        {/* ========================================================= */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
-                Estado de Resultados Operacional (P&L)
-              </h3>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">Estado de Resultados Operacional (P&L)</h3>
               <div className="space-y-3 font-mono text-xs">
-                <div className="flex justify-between py-2 border-b border-slate-800 text-sm font-bold text-white">
-                  <span>(=) Ingresos Operacionales</span>
-                  <span className="text-teal-300">${totalIngresos.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-rose-300 pl-4">
-                  <span>(-) Egresos / Costos Totales</span>
-                  <span>-${totalEgresosReales.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300">
-                  <span>(=) MARGEN NETO REAL</span>
-                  <span>${saldoNetoOperativo.toLocaleString('es-CL')}</span>
-                </div>
+                <div className="flex justify-between py-2 border-b border-slate-800 text-sm font-bold text-white"><span>(=) Ingresos Operacionales</span><span className="text-teal-300">${totalIngresos.toLocaleString('es-CL')}</span></div>
+                <div className="flex justify-between py-1.5 text-rose-300 pl-4"><span>(-) Egresos / Costos Totales</span><span>-${totalEgresosReales.toLocaleString('es-CL')}</span></div>
+                <div className="flex justify-between py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300"><span>(=) MARGEN NETO REAL</span><span>${saldoNetoOperativo.toLocaleString('es-CL')}</span></div>
               </div>
             </div>
           </div>
         )}
 
-        {/* VISTA 5: CLIENTES */}
+        {/* ========================================================= */}
+        {/* VISTA 5: CLIENTES & COBRANZA */}
+        {/* ========================================================= */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Facturada</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">${totalIngresos.toLocaleString('es-CL')}</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Cobranza Pendiente</span>
-                <div className="text-2xl font-mono font-black text-amber-400 mt-1">${cobrosPendientesPorEntrar.toLocaleString('es-CL')}</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-teal-400">Cobrado en Banco</span>
-                <div className="text-2xl font-mono font-black text-teal-300 mt-1">${totalTransfConvenios.toLocaleString('es-CL')}</div>
-              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Facturada</span><div className="text-2xl font-mono font-black text-white mt-1">${totalIngresos.toLocaleString('es-CL')}</div></div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-amber-400">Cobranza Pendiente</span><div className="text-2xl font-mono font-black text-amber-400 mt-1">${cobrosPendientesPorEntrar.toLocaleString('es-CL')}</div></div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-teal-400">Cobrado en Banco</span><div className="text-2xl font-mono font-black text-teal-300 mt-1">${totalTransfConvenios.toLocaleString('es-CL')}</div></div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL REGISTRAR ABONO BANCARIO */}
+        {modalAbonoAbierto && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+              <button onClick={() => setModalAbonoAbierto(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4"><Landmark className="w-5 h-5 text-emerald-400" /><h3 className="text-base font-bold text-white">Registrar Ingreso de Banco / Cartola</h3></div>
+              <form onSubmit={handleGuardarAbono} className="space-y-4 text-xs">
+                <div><label className="block text-slate-400 mb-1 font-semibold">Fecha Contable de Depósito</label><input type="date" required value={formFechaAbono} onChange={(e) => setFormFechaAbono(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono" /></div>
+                <div><label className="block text-slate-400 mb-1 font-semibold">Tipo de Abono</label><select value={formTipoAbono} onChange={(e) => setFormTipoAbono(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"><option value="Liquidación Transbank">Liquidación Transbank</option><option value="Liquidación Compra Aquí">Liquidación Compra Aquí</option><option value="Pago Factura / Convenio">Pago Factura / Convenio</option><option value="Transferencia Varia / Anticipo">Transferencia Varia / Anticipo</option></select></div>
+                <div><label className="block text-slate-400 mb-1 font-semibold">Monto Líquido Depositado ($)</label><input type="number" required placeholder="Ej: 594432" value={formMontoAbono} onChange={(e) => setFormMontoAbono(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-sm font-bold" /></div>
+                <div><label className="block text-slate-400 mb-1 font-semibold">Origen / Emisor (Opcional)</label><input type="text" placeholder="Ej: Transbank, Municipalidad, Banco..." value={formOrigenAbono} onChange={(e) => setFormOrigenAbono(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white" /></div>
+                <div><label className="block text-slate-400 mb-1 font-semibold">Observación / N° Comprobante</label><input type="text" placeholder="Ej: Abono ventas fin de semana" value={formObsAbono} onChange={(e) => setFormObsAbono(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white" /></div>
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800"><button type="button" onClick={() => setModalAbonoAbierto(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white">Cancelar</button><button type="submit" disabled={guardandoAbono} className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-white shadow-lg disabled:opacity-50">{guardandoAbono ? 'Guardando...' : 'Guardar en Cartola'}</button></div>
+              </form>
             </div>
           </div>
         )}
