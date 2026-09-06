@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CheckCircle2, AlertTriangle, ArrowLeft, Calculator, Printer, Trash2 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, ArrowLeft, Calculator, Printer, Ban } from 'lucide-react';
 import Link from 'next/link';
 
 export default function BoleteriaPage() {
@@ -25,7 +25,8 @@ export default function BoleteriaPage() {
     transferencias: 0,
     total_arqueado: 0,
     diferencia: 0,
-    observaciones: ''
+    observaciones: '',
+    estado: 'Activo'
   });
 
   const [lista, setLista] = useState<any[]>([]);
@@ -97,57 +98,93 @@ export default function BoleteriaPage() {
     }
   };
 
-  // Función para eliminar / anular registro
-  const handleEliminar = async (id: number) => {
-    if (!confirm('¿Estás seguro de anular/eliminar este registro de cierre?')) return;
+  // Función para Anular registro (cambia el estado a 'Anulado' sin borrar el ID ni la fila)
+  const handleAnular = async (id: number) => {
+    if (!confirm('¿Estás seguro de anular este cierre? El registro se mantendrá en el historial como anulado.')) return;
 
     try {
       const { error } = await supabase
         .from('cierre_boleteria')
-        .delete()
+        .update({ estado: 'Anulado' })
         .eq('id', id);
 
       if (error) throw error;
-      setMensaje({ tipo: 'exito', texto: 'Registro anulado correctamente.' });
+      setMensaje({ tipo: 'exito', texto: `Cierre #${id} anulado correctamente.` });
       cargarCierres();
     } catch (err: any) {
       setMensaje({ tipo: 'error', texto: `Error al anular: ${err.message}` });
     }
   };
 
-  // Función para imprimir comprobante rápido
+  // Función para imprimir comprobante oficial
   const handleImprimir = (item: any) => {
-    const ventana = window.open('', '_print', 'width=600,height=600');
+    if (item.estado === 'Anulado') {
+      alert('No se puede imprimir un comprobante anulado.');
+      return;
+    }
+
+    const ventana = window.open('', '_print', 'width=700,height=700');
     if (!ventana) return;
 
     ventana.document.write(`
       <html>
         <head>
-          <title>Comprobante Cierre #${item.id}</title>
+          <title>Cierre de Boletería #${item.id}</title>
           <style>
-            body { font-family: monospace; padding: 20px; color: #111; }
-            h2 { text-align: center; border-bottom: 2px dashed #333; padding-bottom: 10px; }
-            .row { display: flex; justify-content: space-between; margin: 6px 0; }
-            .total { font-weight: bold; border-top: 1px solid #333; margin-top: 10px; padding-top: 5px; }
+            body { font-family: 'Courier New', Courier, monospace; padding: 20px; color: #111; max-width: 400px; margin: auto; }
+            .header { text-align: center; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 15px; }
+            .header h1 { font-size: 16px; margin: 0 0 5px 0; text-transform: uppercase; }
+            .header p { font-size: 11px; margin: 2px 0; color: #555; }
+            .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; border-bottom: 1px dashed #777; margin: 12px 0 6px 0; padding-bottom: 2px; }
+            .row { display: flex; justify-content: space-between; font-size: 12px; margin: 4px 0; }
+            .total { font-weight: bold; border-top: 1px solid #111; margin-top: 8px; padding-top: 6px; }
+            .footer { text-align: center; font-size: 10px; margin-top: 20px; border-top: 1px dashed #aaa; padding-top: 10px; color: #666; }
           </style>
         </head>
         <body>
-          <h2>CIERRE DE BOLETERÍA #${item.id}</h2>
-          <div class="row"><span>Fecha:</span><span>${item.fecha}</span></div>
-          <div class="row"><span>Turno:</span><span>${item.turno}</span></div>
-          <div class="row"><span>Cajero:</span><span>${item.cajero}</span></div>
+          <div class="header">
+            <h1>Acuario - Control de Caja</h1>
+            <p>Comprobante de Cierre Diario # ${item.id}</p>
+            <p>Fecha: ${item.fecha} | Turno: ${item.turno}</p>
+          </div>
+
+          <div class="row"><span>Cajero / Operador:</span><strong>${item.cajero}</strong></div>
           <div class="row"><span>Temporada:</span><span>${item.temporada}</span></div>
-          <hr/>
-          <div class="row"><span>Total Personas:</span><span>${item.total_personas} pers.</span></div>
-          <div class="row"><span>Ventas Ingresos:</span><span>$${Number(item.total_ingresos).toLocaleString('es-CL')}</span></div>
-          <hr/>
-          <div class="row"><span>Efectivo Caja:</span><span>$${Number(item.efectivo).toLocaleString('es-CL')}</span></div>
+
+          <div class="section-title">Afluencia de Visitantes</div>
+          <div class="row"><span>Total Personas:</span><strong>${item.total_personas} pers.</strong></div>
+
+          <div class="section-title">Ventas Brutas ($ CLP)</div>
+          <div class="row"><span>Boletería / Entradas:</span><span>$${Number(item.ventas_boleteria || 0).toLocaleString('es-CL')}</span></div>
+          <div class="row"><span>Tienda / Recuerdos:</span><span>$${Number(item.ventas_tienda || 0).toLocaleString('es-CL')}</span></div>
+          <div class="row total"><span>Total Ingresos:</span><span>$${Number(item.total_ingresos || 0).toLocaleString('es-CL')}</span></div>
+
+          <div class="section-title">Arqueo por Medios ($ CLP)</div>
+          <div class="row"><span>Efectivo en Caja:</span><span>$${Number(item.efectivo || 0).toLocaleString('es-CL')}</span></div>
           <div class="row"><span>POS Compra Aquí:</span><span>$${Number(item.pos_compra_aqui || 0).toLocaleString('es-CL')}</span></div>
           <div class="row"><span>POS Transbank:</span><span>$${Number(item.pos_transbank || 0).toLocaleString('es-CL')}</span></div>
-          <div class="row"><span>Transferencias:</span><span>$${Number(item.transferencias).toLocaleString('es-CL')}</span></div>
-          <div class="row total"><span>Total Arqueado:</span><span>$${Number(item.total_arqueado).toLocaleString('es-CL')}</span></div>
-          <div class="row total"><span>Diferencia:</span><span>$${Number(item.diferencia).toLocaleString('es-CL')}</span></div>
-          <script>window.print(); window.close();</script>
+          <div class="row"><span>Transferencias:</span><span>$${Number(item.transferencias || 0).toLocaleString('es-CL')}</span></div>
+          <div class="row total"><span>Total Arqueado:</span><span>$${Number(item.total_arqueado || 0).toLocaleString('es-CL')}</span></div>
+
+          <div class="section-title">Cuadre de Caja</div>
+          <div class="row total">
+            <span>Diferencia:</span>
+            <span>${Number(item.diferencia) === 0 ? 'Cuadre Exacto ($0)' : `$${Number(item.diferencia).toLocaleString('es-CL')}`}</span>
+          </div>
+
+          ${item.observaciones ? `<div class="section-title">Observaciones</div><p style="font-size:11px; margin:4px 0;">${item.observaciones}</p>` : ''}
+
+          <div class="footer">
+            <p>Documento generado por Sistema Acuario Web</p>
+            <p>Firma Operador: ______________________</p>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+              window.close();
+            }
+          </script>
         </body>
       </html>
     `);
@@ -393,58 +430,61 @@ export default function BoleteriaPage() {
           </form>
         </div>
 
-        {/* Tabla de Historial de Cierres con Correlativo, Imprimir y Anular */}
+        {/* Tabla de Historial con Estado de Anulación */}
         {lista.length > 0 && (
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
-            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Historial de Cierres de Boletería</h3>
+            <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-3">Historial y Correlativo de Cierres</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
                 <thead className="border-b border-slate-700 text-slate-400">
                   <tr>
-                    <th className="py-2 px-2">N° ID</th>
+                    <th className="py-2 px-2">N° Folio</th>
                     <th className="py-2 px-2">Fecha</th>
                     <th className="py-2 px-2">Cajero</th>
                     <th className="py-2 px-2">Total Ingresos</th>
-                    <th className="py-2 px-2">Compra Aquí</th>
-                    <th className="py-2 px-2">Transbank</th>
-                    <th className="py-2 px-2">Diferencia</th>
+                    <th className="py-2 px-2">Estado</th>
                     <th className="py-2 px-2 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {lista.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-2 px-2 font-mono font-bold text-sky-400">#{item.id}</td>
-                      <td className="py-2 px-2">{item.fecha}</td>
-                      <td className="py-2 px-2 font-semibold text-white">{item.cajero}</td>
-                      <td className="py-2 px-2 font-mono text-teal-300">${Number(item.total_ingresos).toLocaleString('es-CL')}</td>
-                      <td className="py-2 px-2 font-mono text-amber-300">${Number(item.pos_compra_aqui || 0).toLocaleString('es-CL')}</td>
-                      <td className="py-2 px-2 font-mono text-amber-300">${Number(item.pos_transbank || 0).toLocaleString('es-CL')}</td>
-                      <td className="py-2 px-2">
-                        <span className={`font-mono font-bold ${item.diferencia === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {item.diferencia === 0 ? '$0' : `$${Number(item.diferencia).toLocaleString('es-CL')}`}
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 text-center space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => handleImprimir(item)}
-                          title="Imprimir Comprobante"
-                          className="p-1.5 bg-sky-950 text-sky-300 hover:bg-sky-900 rounded border border-sky-800 transition"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleEliminar(item.id)}
-                          title="Anular Registro"
-                          className="p-1.5 bg-rose-950 text-rose-300 hover:bg-rose-900 rounded border border-rose-800 transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {lista.map((item) => {
+                    const esAnulado = item.estado === 'Anulado';
+                    return (
+                      <tr key={item.id} className={esAnulado ? 'opacity-50 bg-slate-950/40 line-through' : ''}>
+                        <td className="py-2 px-2 font-mono font-bold text-sky-400">#{item.id}</td>
+                        <td className="py-2 px-2">{item.fecha}</td>
+                        <td className="py-2 px-2 font-semibold text-white">{item.cajero}</td>
+                        <td className="py-2 px-2 font-mono text-teal-300">${Number(item.total_ingresos).toLocaleString('es-CL')}</td>
+                        <td className="py-2 px-2">
+                          <span className={`no-underline px-2 py-0.5 rounded text-[10px] font-bold uppercase ${esAnulado ? 'bg-rose-950 text-rose-400 border border-rose-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'}`}>
+                            {item.estado || 'Activo'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-center space-x-2">
+                          {!esAnulado && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleImprimir(item)}
+                                title="Imprimir Comprobante"
+                                className="p-1.5 bg-sky-950 text-sky-300 hover:bg-sky-900 rounded border border-sky-800 transition"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAnular(item.id)}
+                                title="Anular Turno"
+                                className="p-1.5 bg-rose-950 text-rose-300 hover:bg-rose-900 rounded border border-rose-800 transition"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
