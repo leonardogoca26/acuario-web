@@ -39,7 +39,7 @@ export default function DashboardUnificadoPage() {
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
-  // Estados de Paginación para sábanas de alta densidad
+  // Paginación
   const [paginaSocio, setPaginaSocio] = useState(1);
   const [paginaCartola, setPaginaCartola] = useState(1);
   const registrosPorPagina = 30;
@@ -73,6 +73,7 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
+      // 1. Cierre Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -81,6 +82,7 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
+      // 2. Convenios
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -88,6 +90,7 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
+      // 3. Cartola Banco
       let queryBanco = supabase.from('cartola_banco').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryBanco = queryBanco.gte('fecha', fechaDesde);
@@ -95,6 +98,7 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBanco } = await queryBanco.order('fecha', { ascending: false });
 
+      // 4. Egresos
       let dataEgr: any[] = [];
       const { data: resEgr, error: errEgr } = await supabase.from('egresos').select('*');
       if (!errEgr && resEgr) {
@@ -124,6 +128,7 @@ export default function DashboardUnificadoPage() {
           return true;
         });
 
+      // 5. Histórico Mensual
       const { data: dataHist } = await supabase
         .from('historico_mensual')
         .select('*')
@@ -166,7 +171,7 @@ export default function DashboardUnificadoPage() {
           pos_compra_aqui: 0,
           pos_transbank: 0,
           transferencia: monto,
-          credito: c.estado_pago === 'Pendiente' ? monto : 0
+          credito: (c.estado_pago || '').toLowerCase() === 'pendiente' ? monto : 0
         };
       });
 
@@ -247,13 +252,18 @@ export default function DashboardUnificadoPage() {
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
   const totalIngresoRealCaja = totalEfectivoCaja + totalAbonosCartola + totalTransfConvenios;
 
+  const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+  const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
-  const saldoCajaHoyEstimado = totalIngresoRealCaja > 0 ? totalIngresoRealCaja - totalEgresosReales : 8450000;
-  const cobrosPendientesPorEntrar = convenios.filter(c => c.estado_pago === 'Pendiente').reduce((acc, c) => acc + Number(c.total_recaudado || c.monto || 0), 0);
-  const compromisosFuturos = 6000000;
-  const liquidezProyectada30Dias = saldoCajaHoyEstimado + cobrosPendientesPorEntrar - compromisosFuturos;
+  // CÁLCULO 100% REAL Y MATEMÁTICO (SIN NÚMEROS FIJOS)
+  const saldoCajaHoyEstimado = totalIngresoRealCaja - totalEgresosReales;
+  const cobrosPendientesPorEntrar = convenios
+    .filter(c => (c.estado_pago || '').toLowerCase() === 'pendiente')
+    .reduce((acc, c) => acc + Number(c.total_recaudado || c.monto || c.total || 0), 0);
+  const liquidezProyectada30Dias = saldoCajaHoyEstimado + cobrosPendientesPorEntrar;
 
   // Promedios
   const diasUnicosOperados = Array.from(new Set(movimientos.map(m => m.fecha))).length;
@@ -425,14 +435,14 @@ export default function DashboardUnificadoPage() {
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  // Paginación de la Sábana Diaria
+  // Paginación Sábana Diaria
   const totalPaginasSocio = Math.ceil(listaConciliacionOrdenada.length / registrosPorPagina) || 1;
   const listaSocioPaginada = useMemo(() => {
     const inicio = (paginaSocio - 1) * registrosPorPagina;
     return listaConciliacionOrdenada.slice(inicio, inicio + registrosPorPagina);
   }, [listaConciliacionOrdenada, paginaSocio]);
 
-  // Paginación de la Cartola / Abonos
+  // Paginación Cartola
   const totalPaginasCartola = Math.ceil(abonosBanco.length / registrosPorPagina) || 1;
   const listaCartolaPaginada = useMemo(() => {
     const inicio = (paginaCartola - 1) * registrosPorPagina;
@@ -487,20 +497,21 @@ export default function DashboardUnificadoPage() {
     const fVisita = new Date(c.fecha);
     const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
     const facturado = Number(c.total_recaudado || c.monto || c.total || 0);
-    const pendiente = c.estado_pago === 'Pendiente' ? facturado : 0;
-    return { ...c, diffDias, facturado, pendiente };
+    const esPendiente = (c.estado_pago || '').toLowerCase() === 'pendiente';
+    const pendiente = esPendiente ? facturado : 0;
+    return { ...c, diffDias, facturado, pendiente, esPendiente };
   });
 
-  const conveniosPendientes = convenios.filter(c => c.estado_pago === 'Pendiente');
-  const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0) || 7400000;
-  const totalPendiente = carteraConDias.reduce((acc, c) => acc + c.pendiente, 0) || 2850000;
-  const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
-  const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 28;
+  const conveniosPendientes = carteraConDias.filter(c => c.esPendiente);
+  const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0);
+  const totalPendiente = conveniosPendientes.reduce((acc, c) => acc + c.pendiente, 0);
+  const totalVencido = conveniosPendientes.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0);
+  const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 0;
 
-  const tramo0_30 = carteraConDias.filter(c => c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0);
-  const tramo31_60 = carteraConDias.filter(c => c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0);
-  const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0);
-  const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo0_30 = conveniosPendientes.filter(c => c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo31_60 = conveniosPendientes.filter(c => c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo61_90 = conveniosPendientes.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo90Mas = conveniosPendientes.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0);
 
   // Impresión
   const handleImprimirInforme = () => {
@@ -844,7 +855,7 @@ export default function DashboardUnificadoPage() {
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <div className="flex items-center justify-between"><span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Proyección Caja 30 Días</span><AlertTriangle className="w-4 h-4 text-sky-400" /></div>
                 <div className={`text-2xl font-mono font-black mt-1 ${liquidezProyectada30Dias >= 0 ? 'text-sky-300' : 'text-rose-400'}`}>${liquidezProyectada30Dias.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Caja hoy + Cobranza - Compromisos</div>
+                <div className="text-[10px] text-slate-400 mt-1">Caja hoy + Cobranza pendiente</div>
               </div>
             </div>
 
@@ -1003,7 +1014,7 @@ export default function DashboardUnificadoPage() {
               )}
             </div>
 
-            {/* TABLA DE MOVIMIENTOS BANCARIOS REGISTRADOS (Paginada) */}
+            {/* TABLA DE MOVIMIENTOS BANCARIOS REGISTRADOS */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl space-y-4">
               <div className="flex justify-between items-center border-b border-slate-700 pb-3">
                 <div>
@@ -1191,7 +1202,9 @@ export default function DashboardUnificadoPage() {
                         return (
                           <tr key={anio} className="hover:bg-slate-900/40">
                             <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}</td>
-                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
+                              {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                            </td>))}
                             <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">${totalAnio.toLocaleString('es-CL')}</td>
                           </tr>
                         );
@@ -1221,7 +1234,9 @@ export default function DashboardUnificadoPage() {
                         return (
                           <tr key={anio} className="hover:bg-slate-900/40">
                             <td className="text-left py-2 px-2 font-sans font-bold text-white flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${coloresAnios[anio].bg}`} /> {anio}</td>
-                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>{val > 0 ? val.toLocaleString('es-CL') : '-'}</td>))}
+                            {fila.map((val, i) => (<td key={i} className={`py-2 px-2 ${val > 0 ? 'text-slate-200' : 'text-slate-600 italic'}`}>
+                              {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                            </td>))}
                             <td className="py-2 px-3 font-bold text-sky-300 bg-slate-950/60 border-l border-slate-700">{totalAnio.toLocaleString('es-CL')} pers.</td>
                           </tr>
                         );
@@ -1302,23 +1317,20 @@ export default function DashboardUnificadoPage() {
                     {conveniosPendientes.length === 0 ? (
                       <tr><td colSpan={4} className="py-6 text-center text-slate-500 italic">No hay facturas pendientes de cobro en cartera.</td></tr>
                     ) : (
-                      conveniosPendientes.map((c, idx) => {
-                        const diffDias = Math.floor((hoyObj.getTime() - new Date(c.fecha).getTime()) / (1000 * 3600 * 24));
-                        return (
-                          <tr key={idx} className="hover:bg-slate-800/40">
-                            <td className="py-2 px-2 font-sans font-semibold text-white">{c.nombre_institucion}</td>
-                            <td className="py-2 px-2">{c.fecha}</td>
-                            <td className="py-2 px-2 text-center">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${diffDias > 30 ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-900 text-slate-300'}`}>
-                                {diffDias} días
-                              </span>
-                            </td>
-                            <td className="py-2 px-2 text-right font-bold text-amber-400">
-                              ${Number(c.total_recaudado || c.monto || c.total || 0).toLocaleString('es-CL')}
-                            </td>
-                          </tr>
-                        );
-                      })
+                      conveniosPendientes.map((c, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-2 px-2 font-sans font-semibold text-white">{c.nombre_institucion}</td>
+                          <td className="py-2 px-2">{c.fecha}</td>
+                          <td className="py-2 px-2 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.diffDias > 30 ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-900 text-slate-300'}`}>
+                              {c.diffDias} días
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-right font-bold text-amber-400">
+                            ${c.pendiente.toLocaleString('es-CL')}
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
