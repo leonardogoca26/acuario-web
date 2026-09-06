@@ -4,9 +4,6 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   BarChart3, 
-  Users, 
-  TrendingUp, 
-  Wallet, 
   Sun, 
   Snowflake, 
   Layers, 
@@ -14,16 +11,15 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  DollarSign,
-  AlertCircle,
   Clock,
   FileSpreadsheet,
   RotateCcw,
   List,
   Printer,
   Landmark,
-  ArrowDownRight,
-  ArrowUpRight
+  PlusCircle,
+  X,
+  CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -48,10 +44,22 @@ export default function DashboardUnificadoPage() {
   // Datos base
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
+  const [abonosBanco, setAbonosBanco] = useState<any[]>([]);
+
+  // Modal para registrar abono bancario
+  const [modalAbonoAbierto, setModalAbonoAbierto] = useState(false);
+  const [guardandoAbono, setGuardandoAbono] = useState(false);
+  const [formFechaAbono, setFormFechaAbono] = useState(hoyStr);
+  const [formTipoAbono, setFormTipoAbono] = useState('Liquidación Transbank');
+  const [formMontoAbono, setFormMontoAbono] = useState('');
+  const [formOrigenAbono, setFormOrigenAbono] = useState('');
+  const [formConvenioId, setFormConvenioId] = useState('');
+  const [formObsAbono, setFormObsAbono] = useState('');
 
   const cargarDatos = async () => {
     setCargando(true);
     try {
+      // 1. Cierre Boletería
       let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
@@ -60,6 +68,7 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBol } = await queryBol;
 
+      // 2. Convenios
       let queryConv = supabase.from('convenios').select('*');
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
@@ -67,37 +76,33 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataConv } = await queryConv;
 
+      // 3. Cartola Banco / Abonos Reales
+      let queryBanco = supabase.from('cartola_banco').select('*');
+      if (aplicarFechas) {
+        if (fechaDesde) queryBanco = queryBanco.gte('fecha', fechaDesde);
+        if (fechaHasta) queryBanco = queryBanco.lte('fecha', fechaHasta);
+      }
+      const { data: dataBanco } = await queryBanco;
+
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
       const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
+      const listaBanco = dataBanco || [];
 
-      const mBol = listaBol.map(b => {
-        const ef = Number(b.efectivo || 0);
-        const caAbono = Number(b.abono_compra_aqui || 0);
-        const tbAbono = Number(b.abono_transbank || 0);
-        const tr = Number(b.transferencias || 0);
-
-        // Ingreso real en caja/banco calculado estilo Excel del director
-        const ingresoRealDia = ef + caAbono + tbAbono + tr;
-
-        return {
-          tipo: 'Boletería',
-          subtipo: 'Boletería',
-          id: b.id,
-          detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
-          fecha: b.fecha,
-          temporada: b.temporada,
-          monto: Number(b.total_ingresos || 0),
-          personas: Number(b.total_personas || 0),
-          efectivo: ef,
-          pos_compra_aqui: Number(b.pos_compra_aqui || 0),
-          pos_transbank: Number(b.pos_transbank || 0),
-          abono_compra_aqui: caAbono,
-          abono_transbank: tbAbono,
-          ingreso_real: ingresoRealDia > 0 ? ingresoRealDia : Number(b.total_ingresos || 0),
-          transferencia: tr,
-          credito: 0
-        };
-      });
+      const mBol = listaBol.map(b => ({
+        tipo: 'Boletería',
+        subtipo: 'Boletería',
+        id: b.id,
+        detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
+        fecha: b.fecha,
+        temporada: b.temporada,
+        monto: Number(b.total_ingresos || 0),
+        personas: Number(b.total_personas || 0),
+        efectivo: Number(b.efectivo || 0),
+        pos_compra_aqui: Number(b.pos_compra_aqui || 0),
+        pos_transbank: Number(b.pos_transbank || 0),
+        transferencia: Number(b.transferencias || 0),
+        credito: 0
+      }));
 
       const mConv = listaConv.map(c => {
         const monto = Number(c.total_recaudado || 0);
@@ -113,9 +118,6 @@ export default function DashboardUnificadoPage() {
           efectivo: 0,
           pos_compra_aqui: 0,
           pos_transbank: 0,
-          abono_compra_aqui: 0,
-          abono_transbank: 0,
-          ingreso_real: c.estado_pago === 'Pagado' ? monto : 0,
           transferencia: monto,
           credito: c.estado_pago === 'Pendiente' ? monto : 0
         };
@@ -124,6 +126,7 @@ export default function DashboardUnificadoPage() {
       const todos = [...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
       setMovimientos(todos);
       setConvenios(listaConv);
+      setAbonosBanco(listaBanco);
     } catch (e) {
       console.error('Error cargando datos:', e);
     } finally {
@@ -141,18 +144,59 @@ export default function DashboardUnificadoPage() {
     setAplicarFechas(false);
   };
 
-  // Totales Operacionales Consolidados (Devengado)
+  const handleGuardarAbono = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formMontoAbono || Number(formMontoAbono) <= 0) {
+      alert('Ingresa un monto válido');
+      return;
+    }
+
+    setGuardandoAbono(true);
+    try {
+      const payload: any = {
+        fecha: formFechaAbono,
+        tipo_abono: formTipoAbono,
+        monto: Number(formMontoAbono),
+        origen_cliente: formOrigenAbono || null,
+        observacion: formObsAbono || null,
+        convenio_id: formConvenioId ? Number(formConvenioId) : null
+      };
+
+      const { error } = await supabase.from('cartola_banco').insert([payload]);
+      if (error) throw error;
+
+      // Si vino de una factura/convenio pendiente, lo marcamos pagado
+      if (formConvenioId) {
+        await supabase.from('convenios').update({ estado_pago: 'Pagado' }).eq('id', formConvenioId);
+      }
+
+      setModalAbonoAbierto(false);
+      setFormMontoAbono('');
+      setFormOrigenAbono('');
+      setFormObsAbono('');
+      setFormConvenioId('');
+      cargarDatos();
+    } catch (err: any) {
+      console.error('Error al guardar abono:', err);
+      alert('Error al guardar el abono bancario: ' + err.message);
+    } finally {
+      setGuardandoAbono(false);
+    }
+  };
+
+  // Totales Operativos (Venta en taquilla)
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Totales de Flujo de Caja Real (Percibido en Banco y Mano)
-  const totalIngresoRealCaja = movimientos.reduce((acc, m) => acc + (m.ingreso_real || 0), 0);
+  // Totales de Flujo de Caja Real (Cartola de Banco + Efectivo Físico)
   const totalEfectivoCaja = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
-  const totalAbonoTransbank = movimientos.reduce((acc, m) => acc + (m.abono_transbank || 0), 0);
-  const totalAbonoCompraAqui = movimientos.reduce((acc, m) => acc + (m.abono_compra_aqui || 0), 0);
-  const totalVentaTarjetas = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0) + (m.pos_transbank || 0), 0);
-  const totalAbonosBancariosPOS = totalAbonoTransbank + totalAbonoCompraAqui;
-  const brechaPorLiquidar = totalVentaTarjetas - totalAbonosBancariosPOS;
+  const totalAbonosCartola = abonosBanco.reduce((acc, a) => acc + Number(a.monto || 0), 0);
+  const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
+  const totalIngresoRealCaja = totalEfectivoCaja + totalAbonosCartola + totalTransfConvenios;
+
+  const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+  const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+  const totalOtrosAbonos = abonosBanco.filter(a => a.tipo_abono !== 'Liquidación Transbank' && a.tipo_abono !== 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
 
   // Promedios
   const diasUnicosOperados = Array.from(new Set(movimientos.map(m => m.fecha))).length;
@@ -168,7 +212,7 @@ export default function DashboardUnificadoPage() {
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
 
-  // Desgloses por Medio de Pago (Venta en Puerta)
+  // Desgloses por Medio de Pago en Taquilla
   const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
   const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
@@ -194,37 +238,55 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Agrupación por días para la sábana de conciliación de Flujo de Caja
-  const filasConciliacionPorDia: Record<string, any> = {};
+  // Agrupación de la Sábana Diaria de Conciliación
+  const mapaConciliacion: Record<string, any> = {};
   movimientos.forEach(m => {
-    if (!filasConciliacionPorDia[m.fecha]) {
-      filasConciliacionPorDia[m.fecha] = {
+    if (!mapaConciliacion[m.fecha]) {
+      mapaConciliacion[m.fecha] = {
         fecha: m.fecha,
         efectivo: 0,
         venta_tarjetas: 0,
         abono_transbank: 0,
         abono_compra_aqui: 0,
+        abonos_otros: 0,
         transferencias: 0,
-        ingreso_real: 0,
-        total_venta: 0,
         personas: 0
       };
     }
-    filasConciliacionPorDia[m.fecha].efectivo += (m.efectivo || 0);
-    filasConciliacionPorDia[m.fecha].venta_tarjetas += (m.pos_compra_aqui || 0) + (m.pos_transbank || 0);
-    filasConciliacionPorDia[m.fecha].abono_transbank += (m.abono_transbank || 0);
-    filasConciliacionPorDia[m.fecha].abono_compra_aqui += (m.abono_compra_aqui || 0);
-    filasConciliacionPorDia[m.fecha].transferencias += (m.transferencia || 0);
-    filasConciliacionPorDia[m.fecha].ingreso_real += (m.ingreso_real || 0);
-    filasConciliacionPorDia[m.fecha].total_venta += m.monto;
-    filasConciliacionPorDia[m.fecha].personas += m.personas;
+    mapaConciliacion[m.fecha].efectivo += (m.efectivo || 0);
+    mapaConciliacion[m.fecha].venta_tarjetas += (m.pos_compra_aqui || 0) + (m.pos_transbank || 0);
+    mapaConciliacion[m.fecha].transferencias += (m.transferencia || 0);
+    mapaConciliacion[m.fecha].personas += m.personas;
   });
 
-  const listaConciliacionOrdenada = Object.values(filasConciliacionPorDia).sort((a: any, b: any) => 
-    new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
-  );
+  abonosBanco.forEach(a => {
+    if (!mapaConciliacion[a.fecha]) {
+      mapaConciliacion[a.fecha] = {
+        fecha: a.fecha,
+        efectivo: 0,
+        venta_tarjetas: 0,
+        abono_transbank: 0,
+        abono_compra_aqui: 0,
+        abonos_otros: 0,
+        transferencias: 0,
+        personas: 0
+      };
+    }
+    if (a.tipo_abono === 'Liquidación Transbank') {
+      mapaConciliacion[a.fecha].abono_transbank += Number(a.monto || 0);
+    } else if (a.tipo_abono === 'Liquidación Compra Aquí') {
+      mapaConciliacion[a.fecha].abono_compra_aqui += Number(a.monto || 0);
+    } else {
+      mapaConciliacion[a.fecha].abonos_otros += Number(a.monto || 0);
+    }
+  });
 
-  // Impresión de Informe Ejecutivo
+  const listaConciliacionOrdenada = Object.values(mapaConciliacion).map((row: any) => {
+    const ingresoRealDia = row.efectivo + row.abono_transbank + row.abono_compra_aqui + row.abonos_otros + row.transferencias;
+    return { ...row, ingreso_real: ingresoRealDia };
+  }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+  // Impresión
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
@@ -237,125 +299,25 @@ export default function DashboardUnificadoPage() {
         <head>
           <title>Informe Ejecutivo de Control Financiero</title>
           <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-              color: #1e293b;
-              padding: 40px;
-              margin: 0;
-            }
-            .header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 2px solid #0f172a;
-              padding-bottom: 16px;
-              margin-bottom: 24px;
-            }
-            .brand {
-              display: flex;
-              align-items: center;
-              gap: 16px;
-            }
-            .brand img {
-              height: 56px;
-              width: auto;
-              object-fit: contain;
-              display: block;
-            }
-            .title h1 {
-              font-size: 18px;
-              font-weight: 800;
-              margin: 0;
-              text-transform: uppercase;
-            }
-            .title p {
-              font-size: 11px;
-              color: #64748b;
-              margin: 3px 0 0 0;
-            }
-            .meta {
-              text-align: right;
-              font-size: 11px;
-            }
-            .meta strong {
-              color: #0f172a;
-            }
-            .summary-cards {
-              display: flex;
-              gap: 10px;
-              margin-bottom: 24px;
-            }
-            .card {
-              flex: 1;
-              background-color: #f8fafc;
-              border: 1px solid #e2e8f0;
-              border-radius: 8px;
-              padding: 10px;
-            }
-            .card span {
-              font-size: 9px;
-              font-weight: 700;
-              text-transform: uppercase;
-              color: #64748b;
-              display: block;
-            }
-            .card .val {
-              font-size: 16px;
-              font-weight: 900;
-              font-family: monospace;
-              color: #0f172a;
-              margin-top: 3px;
-            }
-            .card .sub {
-              font-size: 8px;
-              color: #94a3b8;
-              margin-top: 2px;
-            }
-            .grid {
-              display: flex;
-              gap: 20px;
-              margin-bottom: 24px;
-            }
-            .col {
-              flex: 1;
-            }
-            h2 {
-              font-size: 12px;
-              font-weight: 800;
-              text-transform: uppercase;
-              border-bottom: 1px solid #cbd5e1;
-              padding-bottom: 6px;
-              margin: 0 0 10px 0;
-              color: #0f172a;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 11px;
-            }
-            td {
-              padding: 6px 0;
-              border-bottom: 1px solid #f1f5f9;
-            }
-            td.num {
-              text-align: right;
-              font-family: monospace;
-              font-weight: 600;
-            }
-            .total-row td {
-              font-weight: 800;
-              border-top: 1px solid #0f172a;
-              border-bottom: none;
-              padding-top: 8px;
-            }
-            .footer-info {
-              margin-top: 30px;
-              text-align: center;
-              font-size: 10px;
-              color: #94a3b8;
-              border-top: 1px dashed #cbd5e1;
-              padding-top: 12px;
-            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; padding: 40px; margin: 0; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 24px; }
+            .brand { display: flex; align-items: center; gap: 16px; }
+            .brand img { height: 56px; width: auto; object-fit: contain; }
+            .title h1 { font-size: 18px; font-weight: 800; margin: 0; text-transform: uppercase; }
+            .title p { font-size: 11px; color: #64748b; margin: 3px 0 0 0; }
+            .meta { text-align: right; font-size: 11px; }
+            .summary-cards { display: flex; gap: 10px; margin-bottom: 24px; }
+            .card { flex: 1; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+            .card span { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #64748b; display: block; }
+            .card .val { font-size: 16px; font-weight: 900; font-family: monospace; color: #0f172a; margin-top: 3px; }
+            .grid { display: flex; gap: 20px; margin-bottom: 24px; }
+            .col { flex: 1; }
+            h2 { font-size: 12px; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin: 0 0 10px 0; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            td { padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+            td.num { text-align: right; font-family: monospace; font-weight: 600; }
+            .total-row td { font-weight: 800; border-top: 1px solid #0f172a; border-bottom: none; padding-top: 8px; }
+            .footer-info { margin-top: 30px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
           </style>
         </head>
         <body>
@@ -378,27 +340,22 @@ export default function DashboardUnificadoPage() {
             <div class="card">
               <span>Recaudación Total</span>
               <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
-              <div class="sub">${movimientos.length} operaciones (${diasUnicosOperados} días)</div>
             </div>
             <div class="card">
               <span>Afluencia Total</span>
               <div class="val">${totalPublico} pers.</div>
-              <div class="sub">Visitantes ingresados</div>
             </div>
             <div class="card">
               <span>Promedio Día ($)</span>
               <div class="val">$${ingresosPromedioDia.toLocaleString('es-CL')}</div>
-              <div class="sub">Venta promedio</div>
             </div>
             <div class="card">
               <span>Personas/Día</span>
               <div class="val">${personasPromedioDia} pers.</div>
-              <div class="sub">Afluencia media</div>
             </div>
             <div class="card">
               <span>Promedio Mes</span>
               <div class="val">$${promedioMensual.toLocaleString('es-CL')}</div>
-              <div class="sub">Mensualizado</div>
             </div>
           </div>
 
@@ -470,10 +427,11 @@ export default function DashboardUnificadoPage() {
     const fVisita = new Date(c.fecha);
     const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
     const facturado = Number(c.total_recaudado || 0);
-    const pendiente = facturado;
+    const pendiente = c.estado_pago === 'Pendiente' ? facturado : 0;
     return { ...c, diffDias, facturado, pendiente };
   });
 
+  const conveniosPendientes = convenios.filter(c => c.estado_pago === 'Pendiente');
   const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0) || 7400000;
   const totalPendiente = carteraConDias.reduce((acc, c) => acc + c.pendiente, 0) || 2850000;
   const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
@@ -590,7 +548,7 @@ export default function DashboardUnificadoPage() {
         {seccion === 'operativo' && (
           <div className="space-y-6">
             
-            {/* Barra de Filtro de Fechas y Selector de Modo */}
+            {/* Barra de Filtro de Fechas */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
@@ -647,7 +605,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* SECCIÓN PROMEDIOS CLAVE ESTILO EXCEL DEL DIRECTOR */}
+            {/* SECCIÓN PROMEDIOS CLAVE */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span>
@@ -682,7 +640,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 1: RECAUDACIÓN TOTAL CON DESGLOSE POR CANAL Y MEDIO DE PAGO */}
+            {/* SECCIÓN 1: RECAUDACIÓN TOTAL */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
@@ -698,7 +656,6 @@ export default function DashboardUnificadoPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Desglose por Canal / Origen */}
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-sky-400 tracking-wider">Por Canal / Origen</span>
                   <div className="space-y-1.5 text-xs">
@@ -725,7 +682,6 @@ export default function DashboardUnificadoPage() {
                   </div>
                 </div>
 
-                {/* Desglose por Medio de Pago */}
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-amber-400 tracking-wider">Por Medio de Pago</span>
                   <div className="space-y-1.5 text-xs">
@@ -754,7 +710,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 2: PÚBLICO TOTAL CON DESGLOSE POR CANAL */}
+            {/* SECCIÓN 2: PÚBLICO TOTAL */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
@@ -799,7 +755,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* VISTA CALENDARIO MENSUAL */}
+            {/* VISTA CALENDARIO */}
             {vistaOperativa === 'calendario' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
@@ -870,7 +826,7 @@ export default function DashboardUnificadoPage() {
               </div>
             )}
 
-            {/* VISTA LISTA DETALLADA */}
+            {/* VISTA LISTA */}
             {vistaOperativa === 'lista' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
@@ -882,60 +838,29 @@ export default function DashboardUnificadoPage() {
                       <tr>
                         <th className="py-2.5 px-2">Tipo</th>
                         <th className="py-2.5 px-2">Fecha</th>
-                        <th className="py-2.5 px-2">Temporada</th>
                         <th className="py-2.5 px-2">Detalle / Turno</th>
                         <th className="py-2.5 px-2">Público</th>
                         <th className="py-2.5 px-2 text-right">Monto Recaudado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      {movimientos.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="py-6 text-center text-slate-500 italic">
-                            No hay datos para las fechas o temporada indicada.
+                      {movimientos.map((m, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-2.5 px-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${m.tipo === 'Boletería' ? 'bg-sky-950 text-sky-300 border border-sky-800' : 'bg-teal-950 text-teal-300 border border-teal-800'}`}>
+                              {m.tipo}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 font-mono">{m.fecha}</td>
+                          <td className="py-2.5 px-2 font-semibold text-white">{m.detalle}</td>
+                          <td className="py-2.5 px-2 font-mono">{m.personas} pers.</td>
+                          <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-300">
+                            ${m.monto.toLocaleString('es-CL')}
                           </td>
                         </tr>
-                      ) : (
-                        movimientos.map((m, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/40">
-                            <td className="py-2.5 px-2">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${m.tipo === 'Boletería' ? 'bg-sky-950 text-sky-300 border border-sky-800' : 'bg-teal-950 text-teal-300 border border-teal-800'}`}>
-                                {m.tipo}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-2 font-mono">{m.fecha}</td>
-                            <td className="py-2.5 px-2">{m.temporada}</td>
-                            <td className="py-2.5 px-2 font-semibold text-white">{m.detalle}</td>
-                            <td className="py-2.5 px-2 font-mono">{m.personas} pers.</td>
-                            <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-300">
-                              ${m.monto.toLocaleString('es-CL')}
-                            </td>
-                          </tr>
-                        ))
-                      )}
+                      ))}
                     </tbody>
                   </table>
-                </div>
-              </div>
-            )}
-
-            {/* Detalle del día al hacer click en el calendario */}
-            {diaSeleccionado && vistaOperativa === 'calendario' && (
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-                <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-3">
-                  <span className="text-xs font-bold uppercase text-sky-400">Detalle del Día: {diaSeleccionado}</span>
-                  <button onClick={() => setDiaSeleccionado(null)} className="text-xs text-slate-400 hover:text-white">Cerrar</button>
-                </div>
-                <div className="space-y-2">
-                  {(mapaPorFecha[diaSeleccionado]?.registros || []).map((r, i) => (
-                    <div key={i} className="flex justify-between items-center bg-slate-900 p-2 rounded-lg text-xs">
-                      <div>
-                        <span className="font-bold text-white">{r.tipo}: </span>
-                        <span className="text-slate-300">{r.detalle}</span>
-                      </div>
-                      <div className="font-mono text-teal-300 font-bold">${r.monto.toLocaleString('es-CL')}</div>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
@@ -944,65 +869,68 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 2: FLUJO DE CAJA REAL & CONCILIACIÓN (ESTILO DIRECTOR) */}
+        {/* VISTA 2: FLUJO DE CAJA REAL & CONCILIACIÓN CON MODAL */}
         {/* ========================================================= */}
         {seccion === 'flujocaja' && (
           <div className="space-y-6">
             
-            {/* Alerta de Conciliación Bancaria */}
-            <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-2xl p-4 flex items-start gap-3 shadow-lg">
-              <Landmark className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <strong className="text-white block uppercase tracking-wider">Criterio de Caja Real (Banco & Tesorería)</strong>
-                <span className="text-emerald-200">
-                  Esta vista refleja el dinero real ingresado: Efectivo en caja + Liquidaciones pagadas por Transbank y Compra Aquí + Transferencias.
-                </span>
+            {/* Barra Superior con Botón para Ingresar Abono */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Tesorería y Banco</span>
+                <h2 className="text-base font-black text-white">Cartola Real vs Recaudación en Puerta</h2>
               </div>
+              <button
+                onClick={() => setModalAbonoAbierto(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition"
+              >
+                <PlusCircle className="w-4 h-4" /> Registrar Abono Bancario / Cartola
+              </button>
             </div>
 
             {/* Tarjetas de Conciliación */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Real en Cuenta</span>
+                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Real en Cuenta/Caja</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${totalIngresoRealCaja.toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Efectivo + Abonos de Pasarelas</div>
+                <div className="text-[10px] text-slate-400 mt-1">Efectivo + Liquidaciones + Pagos recibidos</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Efectivo Físico Recaudado</span>
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Efectivo Físico Caja</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${totalEfectivoCaja.toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Caja chica y tesorería</div>
+                <div className="text-[10px] text-slate-400 mt-1">Rendido en boletería</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Liquidaciones Recibidas (POS)</span>
+                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Liquidaciones POS Bancarias</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${totalAbonosBancariosPOS.toLocaleString('es-CL')}
+                  ${(totalAbonoTransbank + totalAbonoCompraAqui).toLocaleString('es-CL')}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">TB: ${totalAbonoTransbank.toLocaleString('es-CL')} | CA: ${totalAbonoCompraAqui.toLocaleString('es-CL')}</div>
               </div>
 
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Ventas por Liquidar en Banco</span>
-                <div className="text-2xl font-mono font-black text-rose-400 mt-1">
-                  ${brechaPorLiquidar > 0 ? brechaPorLiquidar.toLocaleString('es-CL') : '0'}
+                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Facturas y Varios Bancarios</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${(totalOtrosAbonos + totalTransfConvenios).toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Tarjetas pasadas pendientes de abono</div>
+                <div className="text-[10px] text-slate-400 mt-1">Cobranza y transferencias directas</div>
               </div>
             </div>
 
-            {/* SÁBANA DIARIA DE CONCILIACIÓN ESTILO EXCEL DEL DIRECTOR */}
+            {/* SÁBANA DIARIA DE CONCILIACIÓN */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                     Sábana Diaria de Conciliación y Liquidación
                   </h3>
-                  <p className="text-xs text-slate-400">Comparativa directa de vouchers vs depósitos en cuenta bancaria</p>
+                  <p className="text-xs text-slate-400">Abonos efectivos y transferencias que tocaron banco según fecha contable</p>
                 </div>
               </div>
 
@@ -1012,10 +940,10 @@ export default function DashboardUnificadoPage() {
                     <tr>
                       <th className="py-2 px-2">Fecha</th>
                       <th className="py-2 px-2 text-right">Efectivo Día</th>
-                      <th className="py-2 px-2 text-right">Venta Tarjeta (POS)</th>
+                      <th className="py-2 px-2 text-right text-slate-400">Venta Tarjeta (POS)</th>
                       <th className="py-2 px-2 text-right text-teal-300">Abono Transbank</th>
                       <th className="py-2 px-2 text-right text-teal-300">Abono Compra Aquí</th>
-                      <th className="py-2 px-2 text-right">Transferencias</th>
+                      <th className="py-2 px-2 text-right text-indigo-300">Abonos Factura / Varios</th>
                       <th className="py-2 px-2 text-right text-white font-bold bg-slate-900/60">Ingreso Real $</th>
                       <th className="py-2 px-2 text-center">Visitantes</th>
                     </tr>
@@ -1035,7 +963,7 @@ export default function DashboardUnificadoPage() {
                           <td className="py-2 px-2 text-right text-slate-400">${row.venta_tarjetas.toLocaleString('es-CL')}</td>
                           <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_transbank.toLocaleString('es-CL')}</td>
                           <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_compra_aqui.toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right">${row.transferencias.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-indigo-300 font-semibold">${(row.abonos_otros + row.transferencias).toLocaleString('es-CL')}</td>
                           <td className="py-2 px-2 text-right font-black text-emerald-400 bg-slate-900/60">
                             ${row.ingreso_real.toLocaleString('es-CL')}
                           </td>
@@ -1051,6 +979,128 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
+        {/* MODAL EMERGENTE: REGISTRAR ABONO BANCARIO / CARTOLA */}
+        {modalAbonoAbierto && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+              <button
+                onClick={() => setModalAbonoAbierto(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4">
+                <Landmark className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">Registrar Ingreso de Banco / Cartola</h3>
+              </div>
+
+              <form onSubmit={handleGuardarAbono} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Fecha Contable de Depósito</label>
+                  <input
+                    type="date"
+                    required
+                    value={formFechaAbono}
+                    onChange={(e) => setFormFechaAbono(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Tipo de Abono</label>
+                  <select
+                    value={formTipoAbono}
+                    onChange={(e) => setFormTipoAbono(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                  >
+                    <option value="Liquidación Transbank">Liquidación Transbank</option>
+                    <option value="Liquidación Compra Aquí">Liquidación Compra Aquí</option>
+                    <option value="Pago Factura Pendiente">Pago Factura / Convenio Pendiente</option>
+                    <option value="Transferencia Varia / Anticipo">Transferencia Varia / Anticipo</option>
+                  </select>
+                </div>
+
+                {formTipoAbono === 'Pago Factura Pendiente' && (
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Asociar a Convenio Pendiente (Opcional)</label>
+                    <select
+                      value={formConvenioId}
+                      onChange={(e) => {
+                        setFormConvenioId(e.target.value);
+                        const sel = conveniosPendientes.find(c => String(c.id) === e.target.value);
+                        if (sel) {
+                          setFormMontoAbono(String(sel.total_recaudado));
+                          setFormOrigenAbono(sel.nombre_institucion);
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                    >
+                      <option value="">-- Seleccionar Institución Pendiente --</option>
+                      {conveniosPendientes.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.nombre_institucion} (${Number(c.total_recaudado).toLocaleString('es-CL')}) - {c.fecha}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Monto Líquido Depositado ($)</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="Ej: 594432"
+                    value={formMontoAbono}
+                    onChange={(e) => setFormMontoAbono(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-sm font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Origen / Emisor (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Transbank, Municipalidad, Banco..."
+                    value={formOrigenAbono}
+                    onChange={(e) => setFormOrigenAbono(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Observación / N° Comprobante</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Depósito ventas fin de semana"
+                    value={formObsAbono}
+                    onChange={(e) => setFormObsAbono(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setModalAbonoAbierto(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={guardandoAbono}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-white shadow-lg disabled:opacity-50"
+                  >
+                    {guardandoAbono ? 'Guardando...' : 'Guardar en Cartola'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* ========================================================= */}
         {/* VISTA 3: GRÁFICAS GENERALES */}
         {/* ========================================================= */}
@@ -1060,7 +1110,7 @@ export default function DashboardUnificadoPage() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wider text-white">Ventas y Utilidad (Últimos 12 Meses)</h3>
-                  <p className="text-xs text-slate-400">Contraste entre volumen facturado y ganancia real en bolsillo</p>
+                  <p className="text-xs text-slate-400">Contraste entre facturado y ganancia real en bolsillo</p>
                 </div>
                 <div className="flex items-center gap-4 text-xs font-semibold">
                   <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-500 inline-block" /> Ventas</span>
