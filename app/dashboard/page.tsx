@@ -19,7 +19,8 @@ import {
   Clock,
   FileSpreadsheet,
   RotateCcw,
-  List
+  List,
+  Printer
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -29,7 +30,7 @@ export default function DashboardUnificadoPage() {
 
   const [seccion, setSeccion] = useState<'operativo' | 'graficas' | 'resultados' | 'caja' | 'cobranza'>('operativo');
   const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
-  const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano' | 'Invierno'>('Todas');
+  const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano (Alta)' | 'Invierno (Baja)'>('Todas');
   const [fechaDesde, setFechaDesde] = useState(inicioMesStr);
   const [fechaHasta, setFechaHasta] = useState(hoyStr);
   const [aplicarFechas, setAplicarFechas] = useState(true);
@@ -62,7 +63,7 @@ export default function DashboardUnificadoPage() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      let queryBol = supabase.from('boleteria').select('*').neq('estado', 'anulado');
+      let queryBol = supabase.from('cierre_boleteria').select('*');
       if (filtroTemporada !== 'Todas') queryBol = queryBol.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
         if (fechaDesde) queryBol = queryBol.gte('fecha', fechaDesde);
@@ -71,37 +72,55 @@ export default function DashboardUnificadoPage() {
       const { data: dataBol } = await queryBol;
 
       let queryConv = supabase.from('convenios').select('*');
-      if (filtroTemporada !== 'Todas') queryConv = queryConv.eq('temporada', filtroTemporada);
       if (aplicarFechas) {
         if (fechaDesde) queryConv = queryConv.gte('fecha', fechaDesde);
         if (fechaHasta) queryConv = queryConv.lte('fecha', fechaHasta);
       }
       const { data: dataConv } = await queryConv;
 
-      const mBol = (dataBol || []).map(b => ({
+      const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
+      const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
+
+      const mBol = listaBol.map(b => ({
         tipo: 'Boletería',
+        subtipo: 'Boletería',
         id: b.id,
-        detalle: `Turno ${b.turno} (#${b.id})`,
+        detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
         fecha: b.fecha,
         temporada: b.temporada,
-        monto: Number(b.total_bruto || 0),
-        personas: Number(b.total_personas || 0)
+        monto: Number(b.total_ingresos || 0),
+        personas: Number(b.total_personas || 0),
+        efectivo: Number(b.efectivo || 0),
+        pos_compra_aqui: Number(b.pos_compra_aqui || 0),
+        pos_transbank: Number(b.pos_transbank || 0),
+        transferencia: Number(b.transferencias || 0),
+        credito: 0
       }));
 
-      const mConv = (dataConv || []).map(c => ({
-        tipo: 'Convenio',
-        id: c.id,
-        detalle: c.institucion,
-        fecha: c.fecha,
-        temporada: c.temporada,
-        monto: Number(c.total_facturado || 0),
-        personas: Number(c.cantidad_personas || 0)
-      }));
+      const mConv = listaConv.map(c => {
+        const monto = Number(c.total_recaudado || 0);
+        return {
+          tipo: 'Convenio',
+          subtipo: c.tipo_ingreso || 'Convenio / Delegación',
+          id: c.id,
+          detalle: c.nombre_institucion || 'Institución / Convenio',
+          fecha: c.fecha,
+          temporada: 'Verano (Alta)',
+          monto: monto,
+          personas: Number(c.total_personas || 0),
+          efectivo: 0,
+          pos_compra_aqui: 0,
+          pos_transbank: 0,
+          transferencia: monto,
+          credito: c.estado_pago === 'Pendiente' ? monto : 0
+        };
+      });
 
-      setMovimientos([...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
-      setConvenios(dataConv || []);
+      const todos = [...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+      setMovimientos(todos);
+      setConvenios(listaConv);
     } catch (e) {
-      console.error(e);
+      console.error('Error cargando datos:', e);
     } finally {
       setCargando(false);
     }
@@ -117,12 +136,30 @@ export default function DashboardUnificadoPage() {
     setAplicarFechas(false);
   };
 
-  // Cálculos Operativos
+  // Totales Operativos Consolidados
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
-  const ticketProm = totalPublico > 0 ? Math.round(totalIngresos / totalPublico) : 0;
 
-  // Cálculos Calendario
+  // Desgloses por Canal
+  const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
+  const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
+  const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
+  const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
+  const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
+
+  // Desgloses por Medio de Pago
+  const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
+  const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
+  const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
+  const recTransf = movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0);
+  const recCredito = movimientos.reduce((acc, m) => acc + (m.credito || 0), 0);
+
+  // Desgloses de Visitantes
+  const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
+  const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0);
+  const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
+
+  // Calendario
   const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const diasEnMes = new Date(anioActual, mesActual + 1, 0).getDate();
   const diaSemanaInicio = new Date(anioActual, mesActual, 1).getDay();
@@ -136,28 +173,246 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Aging de Cartera
+  // Función de Impresión de Informe Ejecutivo con Logo y SIN pie de firma
+  const handleImprimirInforme = () => {
+    const ventana = window.open('', '_print', 'width=850,height=900');
+    if (!ventana) return;
+
+    ventana.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Informe Ejecutivo de Control Financiero</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #1e293b;
+              padding: 40px;
+              margin: 0;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 16px;
+              margin-bottom: 24px;
+            }
+            .brand {
+              display: flex;
+              align-items: center;
+              gap: 14px;
+            }
+            .brand img {
+              height: 52px;
+              width: auto;
+              object-fit: contain;
+            }
+            .title h1 {
+              font-size: 18px;
+              font-weight: 800;
+              margin: 0;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .title p {
+              font-size: 11px;
+              color: #64748b;
+              margin: 3px 0 0 0;
+            }
+            .meta {
+              text-align: right;
+              font-size: 11px;
+            }
+            .meta strong {
+              color: #0f172a;
+            }
+            .summary-cards {
+              display: flex;
+              gap: 16px;
+              margin-bottom: 24px;
+            }
+            .card {
+              flex: 1;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+              padding: 14px;
+            }
+            .card span {
+              font-size: 10px;
+              font-weight: 700;
+              text-transform: uppercase;
+              color: #64748b;
+              display: block;
+            }
+            .card .val {
+              font-size: 20px;
+              font-weight: 900;
+              font-family: monospace;
+              color: #0f172a;
+              margin-top: 4px;
+            }
+            .card .sub {
+              font-size: 9px;
+              color: #94a3b8;
+              margin-top: 2px;
+            }
+            .grid {
+              display: flex;
+              gap: 20px;
+              margin-bottom: 24px;
+            }
+            .col {
+              flex: 1;
+            }
+            h2 {
+              font-size: 12px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              border-bottom: 1px solid #cbd5e1;
+              padding-bottom: 6px;
+              margin: 0 0 10px 0;
+              color: #0f172a;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 11px;
+            }
+            td {
+              padding: 6px 0;
+              border-bottom: 1px solid #f1f5f9;
+            }
+            td.num {
+              text-align: right;
+              font-family: monospace;
+              font-weight: 600;
+            }
+            .total-row td {
+              font-weight: 800;
+              border-top: 1px solid #0f172a;
+              border-bottom: none;
+              padding-top: 8px;
+            }
+            .footer-info {
+              margin-top: 30px;
+              text-align: center;
+              font-size: 10px;
+              color: #94a3b8;
+              border-top: 1px dashed #cbd5e1;
+              padding-top: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="brand">
+              <img src="/logo.png" onerror="this.style.display='none'" alt="Logo Acuario" />
+              <div class="title">
+                <h1>Parque Acuario Puyehue</h1>
+                <p>Informe Ejecutivo de Control Financiero & Operacional</p>
+              </div>
+            </div>
+            <div class="meta">
+              <div>Rango: <strong>${fechaDesde || 'Inicio'} al ${fechaHasta || 'Hoy'}</strong></div>
+              <div>Temporada: <strong>${filtroTemporada}</strong></div>
+              <div>Emisión: ${new Date().toLocaleDateString('es-CL')}</div>
+            </div>
+          </div>
+
+          <div class="summary-cards">
+            <div class="card">
+              <span>Recaudación Total Período</span>
+              <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
+              <div class="sub">${movimientos.length} operaciones liquidadas</div>
+            </div>
+            <div class="card">
+              <span>Afluencia Total Visitantes</span>
+              <div class="val">${totalPublico} pers.</div>
+              <div class="sub">Total de personas atendidas</div>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="col">
+              <h2>1. Ingresos por Canal / Origen</h2>
+              <table>
+                <tbody>
+                  <tr><td>🎟️ Boletería & Tienda</td><td class="num">$${recBoleteria.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏫 Colegios / Delegaciones</td><td class="num">$${recColegios.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🚌 Operadores Turísticos</td><td class="num">$${recOperadores.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏢 Arriendo de Salón</td><td class="num">$${recSalon.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>☕ Cafetería</td><td class="num">$${recCafeteria.toLocaleString('es-CL')}</td></tr>
+                  <tr class="total-row"><td>Total Canales</td><td class="num">$${totalIngresos.toLocaleString('es-CL')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="col">
+              <h2>2. Liquidación por Medios de Pago</h2>
+              <table>
+                <tbody>
+                  <tr><td>💵 Efectivo en Caja</td><td class="num">$${recEfectivo.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>💳 POS Compra Aquí</td><td class="num">$${recCompraAqui.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>💳 POS Transbank</td><td class="num">$${recTransbank.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>🏦 Transferencias Bancarias</td><td class="num">$${recTransf.toLocaleString('es-CL')}</td></tr>
+                  <tr><td>📑 Cuentas por Cobrar / Cheques</td><td class="num">$${recCredito.toLocaleString('es-CL')}</td></tr>
+                  <tr class="total-row"><td>Total Liquidado</td><td class="num">$${totalIngresos.toLocaleString('es-CL')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h2>3. Desglose de Afluencia de Visitantes</h2>
+            <table>
+              <tbody>
+                <tr><td>🎟️ Taquilla Boletería Principal</td><td class="num">${visBoleteria} personas</td></tr>
+                <tr><td>🏫 Delegaciones Escolares e Institucionales</td><td class="num">${visColegios} personas</td></tr>
+                <tr><td>🚌 Pasajeros de Operadores Turísticos</td><td class="num">${visOperadores} personas</td></tr>
+                <tr class="total-row"><td>Total Visitantes Período</td><td class="num">${totalPublico} personas</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="footer-info">
+            Documento Oficial generado por Sistema de Control Parque Acuario Puyehue
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    ventana.document.close();
+  };
+
+  // Cartera Aging
   const hoyObj = new Date();
   const carteraConDias = convenios.map(c => {
     const fVisita = new Date(c.fecha);
     const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
-    const facturado = Number(c.total_facturado || 0);
-    const pendiente = c.estado_pago === 'Pendiente' ? facturado : 0;
-    const pagado = c.estado_pago === 'Pagado' ? facturado : 0;
-    return { ...c, diffDias, facturado, pendiente, pagado };
+    const facturado = Number(c.total_recaudado || 0);
+    const pendiente = facturado;
+    return { ...c, diffDias, facturado, pendiente };
   });
 
   const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0) || 7400000;
   const totalPendiente = carteraConDias.reduce((acc, c) => acc + c.pendiente, 0) || 2850000;
-  const totalVencido = carteraConDias.filter(c => c.diffDias > 30 && c.pendiente > 0).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
+  const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
   const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 28;
 
-  const tramo0_30 = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0) || 750000;
-  const tramo31_60 = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0) || 1100000;
-  const tramo61_90 = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
-  const tramo90Mas = carteraConDias.filter(c => c.pendiente > 0 && c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
+  const tramo0_30 = carteraConDias.filter(c => c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0) || 750000;
+  const tramo31_60 = carteraConDias.filter(c => c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0) || 1100000;
+  const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
+  const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
 
-  // Datos P&L
+  // P&L
   const ventasMesActual = 12450000;
   const ventasMesAnterior = 10800000;
   const ventasMesAnoAnterior = 9500000;
@@ -193,7 +448,7 @@ export default function DashboardUnificadoPage() {
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera Principal */}
+        {/* Cabecera Principal con Botón de Informe Ejecutivo */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -203,25 +458,35 @@ export default function DashboardUnificadoPage() {
             <p className="text-xs text-slate-400">Auditoría contable, posición de caja y proyección estratégica</p>
           </div>
 
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setFiltroTemporada('Todas')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Todas' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              onClick={handleImprimirInforme}
+              className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 hover:border-sky-500/50 rounded-xl text-xs font-bold shadow-lg transition"
+              title="Generar e imprimir informe ejecutivo formal"
             >
-              <Layers className="w-3.5 h-3.5" /> Todas
+              <Printer className="w-4 h-4" /> Informe Ejecutivo
             </button>
-            <button
-              onClick={() => setFiltroTemporada('Verano')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Verano' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Sun className="w-3.5 h-3.5" /> Verano
-            </button>
-            <button
-              onClick={() => setFiltroTemporada('Invierno')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Invierno' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Snowflake className="w-3.5 h-3.5" /> Invierno
-            </button>
+
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+              <button
+                onClick={() => setFiltroTemporada('Todas')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Todas' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Layers className="w-3.5 h-3.5" /> Todas
+              </button>
+              <button
+                onClick={() => setFiltroTemporada('Verano (Alta)')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Verano (Alta)' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Sun className="w-3.5 h-3.5" /> Verano
+              </button>
+              <button
+                onClick={() => setFiltroTemporada('Invierno (Baja)')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition ${filtroTemporada === 'Invierno (Baja)' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Snowflake className="w-3.5 h-3.5" /> Invierno
+              </button>
+            </div>
           </div>
         </div>
 
@@ -260,7 +525,7 @@ export default function DashboardUnificadoPage() {
         </div>
 
         {/* ========================================================= */}
-        {/* VISTA 1: EJECUTIVO & OPERACIONAL (FILTRO FECHAS + CALENDARIO) */}
+        {/* VISTA 1: EJECUTIVO & OPERACIONAL */}
         {/* ========================================================= */}
         {seccion === 'operativo' && (
           <div className="space-y-6">
@@ -301,13 +566,11 @@ export default function DashboardUnificadoPage() {
                 <button
                   onClick={resetFechas}
                   className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
-                  title="Ver todos los registros históricos"
                 >
                   <RotateCcw className="w-3 h-3" /> Ver Todo
                 </button>
               </div>
 
-              {/* Selector entre vista Calendario y vista Lista */}
               <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
                 <button
                   onClick={() => setVistaOperativa('calendario')}
@@ -324,32 +587,124 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Tarjetas de Totales del Período */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Período</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${totalIngresos.toLocaleString('es-CL')}
+            {/* SECCIÓN 1: RECAUDACIÓN TOTAL CON DESGLOSE POR CANAL Y MEDIO DE PAGO */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-teal-400 tracking-wider">Control Financiero de Ingresos</span>
+                  <h3 className="text-base font-bold text-white">Recaudación Consolidada y Medios de Pago</h3>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">{movimientos.length} registros cargados</div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400">Total Período:</span>
+                  <div className="text-2xl font-mono font-black text-teal-300">
+                    ${totalIngresos.toLocaleString('es-CL')}
+                  </div>
+                </div>
               </div>
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Público Total</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Desglose por Canal / Origen */}
+                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                  <span className="text-[11px] font-bold uppercase text-sky-400 tracking-wider">Por Canal / Origen</span>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🎟️ Boletería & Tienda:</span>
+                      <span className="font-mono font-bold text-white">${recBoleteria.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏫 Colegios / Delegaciones:</span>
+                      <span className="font-mono font-bold text-white">${recColegios.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🚌 Operadores Turísticos:</span>
+                      <span className="font-mono font-bold text-white">${recOperadores.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏢 Arriendo de Salón:</span>
+                      <span className="font-mono font-bold text-white">${recSalon.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-slate-300">☕ Cafetería:</span>
+                      <span className="font-mono font-bold text-white">${recCafeteria.toLocaleString('es-CL')}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Afluencia en este rango</div>
-              </div>
-              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Gasto Medio</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${ticketProm.toLocaleString('es-CL')}
+
+                {/* Desglose por Medio de Pago */}
+                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                  <span className="text-[11px] font-bold uppercase text-amber-400 tracking-wider">Por Medio de Pago</span>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💵 Efectivo en Caja:</span>
+                      <span className="font-mono font-bold text-white">${recEfectivo.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💳 POS Compra Aquí:</span>
+                      <span className="font-mono font-bold text-white">${recCompraAqui.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">💳 POS Transbank:</span>
+                      <span className="font-mono font-bold text-white">${recTransbank.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                      <span className="text-slate-300">🏦 Transferencias Bancarias:</span>
+                      <span className="font-mono font-bold text-white">${recTransf.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-rose-300">📑 Cuentas por Cobrar / Cheques:</span>
+                      <span className="font-mono font-bold text-rose-300">${recCredito.toLocaleString('es-CL')}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Por visitante ingresado</div>
               </div>
             </div>
 
-            {/* 1.1 VISTA CALENDARIO MENSUAL */}
+            {/* SECCIÓN 2: PÚBLICO TOTAL CON DESGLOSE POR CANAL */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Afluencia y Visitantes</span>
+                  <h3 className="text-base font-bold text-white">Desglose de Personas por Canal de Acceso</h3>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400">Público Total:</span>
+                  <div className="text-2xl font-mono font-black text-sky-300">
+                    {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🎟️ Taquilla Boletería</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {visBoleteria} pers.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🏫 Delegaciones Escolares</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {visColegios} pers.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/70 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">🚌 Operadores Turísticos</div>
+                    <div className="text-lg font-mono font-bold text-white mt-0.5">
+                      {visOperadores} pers.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* VISTA CALENDARIO MENSUAL */}
             {vistaOperativa === 'calendario' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
@@ -420,7 +775,7 @@ export default function DashboardUnificadoPage() {
               </div>
             )}
 
-            {/* 1.2 VISTA LISTA DETALLADA */}
+            {/* VISTA LISTA DETALLADA */}
             {vistaOperativa === 'lista' && (
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
@@ -531,28 +886,6 @@ export default function DashboardUnificadoPage() {
                 })}
               </div>
             </div>
-
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-1">Ingresos vs Gastos Totales</h3>
-              <p className="text-xs text-slate-400 mb-6">Auditoría del costo operativo contra la facturación mensual</p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-                {serie12Meses.slice(-6).map((m, idx) => (
-                  <div key={idx} className="bg-slate-900/80 border border-slate-700/70 p-3 rounded-xl flex flex-col justify-between">
-                    <span className="text-xs font-bold text-slate-300 uppercase">{m.mes}</span>
-                    <div className="my-2 space-y-1">
-                      <div className="text-[10px] text-sky-400">Ingresos:</div>
-                      <div className="text-xs font-mono font-bold text-white">${(m.ventas / 1000000).toFixed(1)}M</div>
-                      <div className="text-[10px] text-rose-400 mt-1">Gastos:</div>
-                      <div className="text-xs font-mono font-bold text-rose-300">${(m.gastos / 1000000).toFixed(1)}M</div>
-                    </div>
-                    <div className="text-[10px] font-bold text-emerald-400 border-t border-slate-800 pt-1">
-                      Margen: {Math.round((m.utilidad / m.ventas) * 100)}%
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
 
@@ -561,34 +894,6 @@ export default function DashboardUnificadoPage() {
         {/* ========================================================= */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
-                Análisis Comparativo de Facturación (Ventas)
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <span className="text-[11px] text-slate-400 font-semibold uppercase">Mes Actual</span>
-                  <div className="text-xl font-mono font-black text-white mt-1">${ventasMesActual.toLocaleString('es-CL')}</div>
-                  <div className="text-[10px] text-emerald-400 font-bold mt-1">+{varMesAnterior}% vs Mes Anterior</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <span className="text-[11px] text-slate-400 font-semibold uppercase">Mes Anterior</span>
-                  <div className="text-xl font-mono font-black text-slate-300 mt-1">${ventasMesAnterior.toLocaleString('es-CL')}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">Base de comparación</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <span className="text-[11px] text-slate-400 font-semibold uppercase">Mismo Mes Año Anterior</span>
-                  <div className="text-xl font-mono font-black text-slate-300 mt-1">${ventasMesAnoAnterior.toLocaleString('es-CL')}</div>
-                  <div className="text-[10px] text-teal-400 font-bold mt-1">+{varAnoAnterior}% Interanual</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <span className="text-[11px] text-slate-400 font-semibold uppercase">Acumulado Anual</span>
-                  <div className="text-xl font-mono font-black text-sky-400 mt-1">${ventasAcumuladoAnual.toLocaleString('es-CL')}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">YTD en curso</div>
-                </div>
-              </div>
-            </div>
-
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
                 Estado de Resultados Operacional (P&L)
@@ -648,53 +953,27 @@ export default function DashboardUnificadoPage() {
                   Diagnóstico Estratégico de Liquidez a 30 Días
                 </h4>
                 <p className="text-xs text-rose-200 mt-1 leading-relaxed">
-                  “No estás quebrado, pero si tus clientes no pagan antes del día 20 tendrás un déficit de caja operativo de <strong className="font-mono text-white underline font-black">$1.750.000</strong>. Tus compromisos ineludibles suman <strong>$6.000.000</strong> y tu caja base solo cubre <strong>$2.450.000</strong> sin cobranza activa.”
+                  Tus compromisos ineludibles suman <strong>$6.000.000</strong> y tu caja base cubre <strong>$2.450.000</strong> sin cobranza activa.
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-slate-400 uppercase">Disponible Hoy (Bancos)</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase">Disponible Hoy</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">${saldoDisponibleHoy.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Saldo cuenta corriente</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-rose-400 uppercase">Compromisos 30 Días</span>
                 <div className="text-2xl font-mono font-black text-rose-400 mt-1">-${totalCompromisos.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Proveedores, Nómina, IVA</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-teal-400 uppercase">Cobros Esperados</span>
                 <div className="text-2xl font-mono font-black text-teal-300 mt-1">+${cobrosEsperadosProximos30Dias.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Convenios exigibles</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-sky-400 uppercase">Caja Proyectada</span>
                 <div className="text-2xl font-mono font-black text-sky-300 mt-1">${cajaProyectada.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Posición final estimada</div>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
-                Estructura de Compromisos a Pagar (Próximos 30 Días)
-              </h3>
-              <div className="space-y-3">
-                {compromisosMes.map((c, i) => (
-                  <div key={i} className="flex justify-between items-center bg-slate-900/90 border border-slate-800 p-3 rounded-xl text-xs">
-                    <div>
-                      <div className="font-bold text-white">{c.cat}</div>
-                      <div className="text-[11px] text-slate-400">{c.desc}</div>
-                    </div>
-                    <div className="text-sm font-mono font-bold text-rose-300">
-                      ${c.monto.toLocaleString('es-CL')}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
@@ -709,43 +988,14 @@ export default function DashboardUnificadoPage() {
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Total</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">${totalCartera.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Total acumulado convenios</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Cartera Vencida (+30 días)</span>
                 <div className="text-2xl font-mono font-black text-rose-400 mt-1">${totalVencido.toLocaleString('es-CL')}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Exigible inmediatamente</div>
               </div>
-
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-400">% Vencido</span>
                 <div className="text-2xl font-mono font-black text-amber-400 mt-1">{pctVencido}%</div>
-                <div className="text-[10px] text-slate-400 mt-1">Índice de mora institucional</div>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                Distribución por Antigüedad de Deuda (Aging)
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
-                  <div className="text-[10px] uppercase font-bold text-emerald-400">0–30 Días (Vigente)</div>
-                  <div className="text-lg font-mono font-black text-white mt-1">${tramo0_30.toLocaleString('es-CL')}</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-amber-500/40">
-                  <div className="text-[10px] uppercase font-bold text-amber-400">31–60 Días</div>
-                  <div className="text-lg font-mono font-black text-amber-200 mt-1">${tramo31_60.toLocaleString('es-CL')}</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-orange-500/40">
-                  <div className="text-[10px] uppercase font-bold text-orange-400">61–90 Días</div>
-                  <div className="text-lg font-mono font-black text-orange-200 mt-1">${tramo61_90.toLocaleString('es-CL')}</div>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-rose-500/50">
-                  <div className="text-[10px] uppercase font-bold text-rose-400">+90 Días (Crítico)</div>
-                  <div className="text-lg font-mono font-black text-rose-300 mt-1">${tramo90Mas.toLocaleString('es-CL')}</div>
-                </div>
               </div>
             </div>
           </div>

@@ -46,7 +46,7 @@ export default function DashboardUnificadoPage() {
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
 
-  // Datos de referencia fijos para análisis financiero y caja
+  // Datos fijos de referencia para proyecciones de caja
   const saldoDisponibleHoy = 8450000;
   const compromisosMes = [
     { cat: 'Proveedores', monto: 2300000, desc: 'Alimento de fauna, mantención acuarios' },
@@ -140,21 +140,21 @@ export default function DashboardUnificadoPage() {
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Variables por Canal
+  // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
   const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
 
-  // Variables por Medio de Pago
+  // Desgloses por Medio de Pago
   const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
   const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
   const recTransf = movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0);
   const recCredito = movimientos.reduce((acc, m) => acc + (m.credito || 0), 0);
 
-  // Variables de Visitantes
+  // Desgloses de Visitantes
   const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
   const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0);
   const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
@@ -173,7 +173,7 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Función de Impresión de Informe Ejecutivo Oficial
+  // Función de Impresión de Informe Ejecutivo con Logo y SIN pie de firma
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
@@ -193,13 +193,23 @@ export default function DashboardUnificadoPage() {
             .header {
               display: flex;
               justify-content: space-between;
-              align-items: flex-start;
+              align-items: center;
               border-bottom: 2px solid #0f172a;
               padding-bottom: 16px;
               margin-bottom: 24px;
             }
+            .brand {
+              display: flex;
+              align-items: center;
+              gap: 14px;
+            }
+            .brand img {
+              height: 52px;
+              width: auto;
+              object-fit: contain;
+            }
             .title h1 {
-              font-size: 20px;
+              font-size: 18px;
               font-weight: 800;
               margin: 0;
               text-transform: uppercase;
@@ -208,7 +218,7 @@ export default function DashboardUnificadoPage() {
             .title p {
               font-size: 11px;
               color: #64748b;
-              margin: 4px 0 0 0;
+              margin: 3px 0 0 0;
             }
             .meta {
               text-align: right;
@@ -271,13 +281,6 @@ export default function DashboardUnificadoPage() {
               border-collapse: collapse;
               font-size: 11px;
             }
-            th {
-              text-align: left;
-              color: #64748b;
-              font-weight: 600;
-              padding: 6px 0;
-              border-bottom: 1px solid #e2e8f0;
-            }
             td {
               padding: 6px 0;
               border-bottom: 1px solid #f1f5f9;
@@ -293,28 +296,24 @@ export default function DashboardUnificadoPage() {
               border-bottom: none;
               padding-top: 8px;
             }
-            .footer {
-              margin-top: 50px;
-              padding-top: 20px;
-              display: flex;
-              justify-content: space-between;
-              font-size: 11px;
-            }
-            .sign-box {
-              width: 200px;
-              border-top: 1px solid #64748b;
+            .footer-info {
+              margin-top: 30px;
               text-align: center;
-              padding-top: 6px;
               font-size: 10px;
-              color: #475569;
+              color: #94a3b8;
+              border-top: 1px dashed #cbd5e1;
+              padding-top: 12px;
             }
           </style>
         </head>
         <body>
           <div class="header">
-            <div class="title">
-              <h1>Parque Acuario Puyehue</h1>
-              <p>Informe Ejecutivo de Control Financiero & Operacional</p>
+            <div class="brand">
+              <img src="/logo.png" onerror="this.style.display='none'" alt="Logo Acuario" />
+              <div class="title">
+                <h1>Parque Acuario Puyehue</h1>
+                <p>Informe Ejecutivo de Control Financiero & Operacional</p>
+              </div>
             </div>
             <div class="meta">
               <div>Rango: <strong>${fechaDesde || 'Inicio'} al ${fechaHasta || 'Hoy'}</strong></div>
@@ -325,19 +324,14 @@ export default function DashboardUnificadoPage() {
 
           <div class="summary-cards">
             <div class="card">
-              <span>Recaudación Período</span>
+              <span>Recaudación Total Período</span>
               <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
               <div class="sub">${movimientos.length} operaciones liquidadas</div>
             </div>
             <div class="card">
-              <span>Afluencia de Visitantes</span>
+              <span>Afluencia Total Visitantes</span>
               <div class="val">${totalPublico} pers.</div>
               <div class="sub">Total de personas atendidas</div>
-            </div>
-            <div class="card">
-              <span>Ticket Promedio Real</span>
-              <div class="val">$${totalPublico > 0 ? Math.round(totalIngresos / totalPublico).toLocaleString('es-CL') : 0}</div>
-              <div class="sub">Ingreso promedio por persona</div>
             </div>
           </div>
 
@@ -383,13 +377,8 @@ export default function DashboardUnificadoPage() {
             </table>
           </div>
 
-          <div class="footer">
-            <div class="sign-box">
-              Administración / Caja
-            </div>
-            <div class="sign-box">
-              Auditoría & Dirección Financiera
-            </div>
+          <div class="footer-info">
+            Documento Oficial generado por Sistema de Control Parque Acuario Puyehue
           </div>
 
           <script>
@@ -403,7 +392,7 @@ export default function DashboardUnificadoPage() {
     ventana.document.close();
   };
 
-  // Cartera Aging y P&L constantes
+  // Cartera Aging
   const hoyObj = new Date();
   const carteraConDias = convenios.map(c => {
     const fVisita = new Date(c.fecha);
@@ -423,6 +412,7 @@ export default function DashboardUnificadoPage() {
   const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
   const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
 
+  // P&L
   const ventasMesActual = 12450000;
   const ventasMesAnterior = 10800000;
   const ventasMesAnoAnterior = 9500000;
@@ -472,7 +462,7 @@ export default function DashboardUnificadoPage() {
             <button
               onClick={handleImprimirInforme}
               className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 hover:border-sky-500/50 rounded-xl text-xs font-bold shadow-lg transition"
-              title="Generar e imprimir informe ejecutivo formal para directorio"
+              title="Generar e imprimir informe ejecutivo formal"
             >
               <Printer className="w-4 h-4" /> Informe Ejecutivo
             </button>
@@ -657,7 +647,7 @@ export default function DashboardUnificadoPage() {
                       <span className="font-mono font-bold text-white">${recTransbank.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-slate-800">
-                      <span className="text-slate-300">🏦 Transferencias Electrónicas:</span>
+                      <span className="text-slate-300">🏦 Transferencias Bancarias:</span>
                       <span className="font-mono font-bold text-white">${recTransf.toLocaleString('es-CL')}</span>
                     </div>
                     <div className="flex justify-between items-center py-1">
