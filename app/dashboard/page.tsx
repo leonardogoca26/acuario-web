@@ -214,6 +214,9 @@ export default function DashboardUnificadoPage() {
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
   const totalIngresoRealCaja = totalEfectivoCaja + totalAbonosCartola + totalTransfConvenios;
 
+  const totalAbonoTransbank = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Transbank').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+  const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
+
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
@@ -920,13 +923,13 @@ export default function DashboardUnificadoPage() {
         {seccion === 'graficas' && (
           <div className="space-y-8">
             
-            {/* GRÁFICO 1: FACTURACIÓN MULTIANUAL EN MILLONES (2022 A 2026) */}
+            {/* GRÁFICO 1: HISTÓRICO DE INGRESOS POR MES Y AÑO (2022 A 2026) */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-6">
                 <div>
-                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Histórico de Ventas</span>
-                  <h3 className="text-base font-black text-white">Facturación Mensual en Millones de Pesos (2022 - 2026)</h3>
-                  <p className="text-xs text-slate-400">Comparativa de ingresos mes a mes entre todas las temporadas registradas</p>
+                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Histórico de Ingresos</span>
+                  <h3 className="text-base font-black text-white">Histórico de Ingresos por Mes y Año (2022 - 2026)</h3>
+                  <p className="text-xs text-slate-400">Comparativa de recaudación mensual en millones de pesos entre todas las temporadas</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
                   {[2022, 2023, 2024, 2025, 2026].map(anio => (
