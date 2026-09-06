@@ -140,6 +140,15 @@ export default function DashboardUnificadoPage() {
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
+  // Cálculos de Días y Promedios Estilo Excel del Director
+  const diasUnicosOperados = Array.from(new Set(movimientos.map(m => m.fecha))).length;
+  const personasPromedioDia = diasUnicosOperados > 0 ? Math.round(totalPublico / diasUnicosOperados) : 0;
+  const ingresosPromedioDia = diasUnicosOperados > 0 ? Math.round(totalIngresos / diasUnicosOperados) : 0;
+  
+  // Conteo de meses únicos presentes en la consulta para sacar promedio mensual
+  const mesesUnicosOperados = Math.max(1, new Set(movimientos.map(m => m.fecha.substring(0, 7))).size);
+  const promedioMensual = Math.round(totalIngresos / mesesUnicosOperados);
+
   // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
   const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
@@ -173,10 +182,12 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Función de Impresión de Informe Ejecutivo con Logo y SIN pie de firma
+  // Función de Impresión de Informe Ejecutivo
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
+
+    const logoUrl = `${window.location.origin}/logo.png`;
 
     ventana.document.write(`
       <!DOCTYPE html>
@@ -201,12 +212,13 @@ export default function DashboardUnificadoPage() {
             .brand {
               display: flex;
               align-items: center;
-              gap: 14px;
+              gap: 16px;
             }
             .brand img {
-              height: 52px;
+              height: 56px;
               width: auto;
               object-fit: contain;
+              display: block;
             }
             .title h1 {
               font-size: 18px;
@@ -229,7 +241,7 @@ export default function DashboardUnificadoPage() {
             }
             .summary-cards {
               display: flex;
-              gap: 16px;
+              gap: 12px;
               margin-bottom: 24px;
             }
             .card {
@@ -237,24 +249,24 @@ export default function DashboardUnificadoPage() {
               background-color: #f8fafc;
               border: 1px solid #e2e8f0;
               border-radius: 8px;
-              padding: 14px;
+              padding: 12px;
             }
             .card span {
-              font-size: 10px;
+              font-size: 9px;
               font-weight: 700;
               text-transform: uppercase;
               color: #64748b;
               display: block;
             }
             .card .val {
-              font-size: 20px;
+              font-size: 17px;
               font-weight: 900;
               font-family: monospace;
               color: #0f172a;
               margin-top: 4px;
             }
             .card .sub {
-              font-size: 9px;
+              font-size: 8px;
               color: #94a3b8;
               margin-top: 2px;
             }
@@ -309,7 +321,7 @@ export default function DashboardUnificadoPage() {
         <body>
           <div class="header">
             <div class="brand">
-              <img src="/logo.png" onerror="this.style.display='none'" alt="Logo Acuario" />
+              <img id="logoImg" src="${logoUrl}" alt="Logo Parque Acuario Puyehue" />
               <div class="title">
                 <h1>Parque Acuario Puyehue</h1>
                 <p>Informe Ejecutivo de Control Financiero & Operacional</p>
@@ -324,14 +336,29 @@ export default function DashboardUnificadoPage() {
 
           <div class="summary-cards">
             <div class="card">
-              <span>Recaudación Total Período</span>
+              <span>Recaudación Total</span>
               <div class="val">$${totalIngresos.toLocaleString('es-CL')}</div>
-              <div class="sub">${movimientos.length} operaciones liquidadas</div>
+              <div class="sub">${movimientos.length} operaciones (${diasUnicosOperados} días)</div>
             </div>
             <div class="card">
-              <span>Afluencia Total Visitantes</span>
+              <span>Afluencia Total</span>
               <div class="val">${totalPublico} pers.</div>
-              <div class="sub">Total de personas atendidas</div>
+              <div class="sub">Total de visitantes</div>
+            </div>
+            <div class="card">
+              <span>Promedio Día ($)</span>
+              <div class="val">$${ingresosPromedioDia.toLocaleString('es-CL')}</div>
+              <div class="sub">Ingreso medio jornada</div>
+            </div>
+            <div class="card">
+              <span>Promedio Personas/Día</span>
+              <div class="val">${personasPromedioDia} pers.</div>
+              <div class="sub">Afluencia media jornada</div>
+            </div>
+            <div class="card">
+              <span>Promedio Mes</span>
+              <div class="val">$${promedioMensual.toLocaleString('es-CL')}</div>
+              <div class="sub">Rendimiento mensual</div>
             </div>
           </div>
 
@@ -382,8 +409,16 @@ export default function DashboardUnificadoPage() {
           </div>
 
           <script>
-            window.onload = function() {
+            const img = document.getElementById('logoImg');
+            const dispararImpresion = () => {
               window.print();
+            };
+
+            if (img && !img.complete) {
+              img.onload = dispararImpresion;
+              img.onerror = dispararImpresion;
+            } else {
+              dispararImpresion();
             }
           </script>
         </body>
@@ -584,6 +619,41 @@ export default function DashboardUnificadoPage() {
                 >
                   <List className="w-3.5 h-3.5" /> Lista
                 </button>
+              </div>
+            </div>
+
+            {/* SECCIÓN 0: TARJETAS DE PROMEDIOS CLAVE ESTILO EXCEL DEL DIRECTOR */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span>
+                <div className="text-xl font-mono font-black text-white mt-0.5">
+                  {diasUnicosOperados} <span className="text-xs font-normal text-slate-400">días</span>
+                </div>
+                <div className="text-[9px] text-slate-400 mt-0.5">Jornadas con movimiento</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
+                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Personas Promedio Día</span>
+                <div className="text-xl font-mono font-black text-sky-300 mt-0.5">
+                  {personasPromedioDia} <span className="text-xs font-normal text-slate-400">pers.</span>
+                </div>
+                <div className="text-[9px] text-slate-400 mt-0.5">Afluencia media diaria</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
+                <span className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Promedio Día</span>
+                <div className="text-xl font-mono font-black text-teal-300 mt-0.5">
+                  ${ingresosPromedioDia.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[9px] text-slate-400 mt-0.5">Venta media por jornada</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
+                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Promedio Mes</span>
+                <div className="text-xl font-mono font-black text-indigo-300 mt-0.5">
+                  ${promedioMensual.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[9px] text-slate-400 mt-0.5">Rendimiento mensualizado</div>
               </div>
             </div>
 
