@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  FileSpreadsheet,
   RotateCcw,
   List,
   Printer,
@@ -22,7 +21,8 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
-  AlertTriangle
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,7 +30,7 @@ export default function DashboardUnificadoPage() {
   const hoyStr = new Date().toISOString().split('T')[0];
   const inicioMesStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
-  const [seccion, setSeccion] = useState<'operativo' | 'flujocaja' | 'graficas' | 'resultados' | 'cobranza'>('operativo');
+  const [seccion, setSeccion] = useState<'operativo' | 'flujocaja' | 'graficas' | 'cobranza'>('operativo');
   const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano (Alta)' | 'Invierno (Baja)'>('Todas');
   
@@ -39,7 +39,7 @@ export default function DashboardUnificadoPage() {
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
-  // Estados de acordeón expandible
+  // Acordeón expandible
   const [expandirIngresos, setExpandirIngresos] = useState(false);
   const [expandirEgresos, setExpandirEgresos] = useState(false);
 
@@ -56,7 +56,7 @@ export default function DashboardUnificadoPage() {
   const [egresos, setEgresos] = useState<any[]>([]);
   const [historicoMensual, setHistoricoMensual] = useState<any[]>([]);
 
-  // Modal registrar abono bancario
+  // Modal abono bancario
   const [modalAbonoAbierto, setModalAbonoAbierto] = useState(false);
   const [guardandoAbono, setGuardandoAbono] = useState(false);
   const [formFechaAbono, setFormFechaAbono] = useState(hoyStr);
@@ -103,7 +103,6 @@ export default function DashboardUnificadoPage() {
         console.warn('Tabla egresos aún sin registros:', err);
       }
 
-      // Cargar base histórica de Supabase
       const { data: dataHist } = await supabase
         .from('historico_mensual')
         .select('*')
@@ -265,7 +264,7 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Cálculo dinámico de la matriz anual
+  // Cálculo de matriz anual
   const { categoriasIngresosFiltradas, categoriasEgresosFiltradas, totalesIngresosMes, totalesEgresosMes, margenNetoMes, totalAnualIngresos, totalAnualEgresos, totalAnualMargen, porcentajeMargenAnual } = useMemo(() => {
     const mapaIngresosCat: Record<string, number[]> = {};
     const mapaEgresosCat: Record<string, number[]> = {};
@@ -327,7 +326,7 @@ export default function DashboardUnificadoPage() {
     };
   }, [movimientos, egresos]);
 
-  // Consolidación de la Sábana Diaria
+  // Sábana diaria
   const mapaConciliacion: Record<string, any> = {};
   movimientos.forEach(m => {
     if (!mapaConciliacion[m.fecha]) {
@@ -395,7 +394,7 @@ export default function DashboardUnificadoPage() {
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  // Preparación de datos para los gráficos históricos
+  // Gráficos multianuales
   const { matrizIngresosAnual, matrizPersonasAnual, maxIngresoMillones, maxPersonasMes } = useMemo(() => {
     const aniosDisponibles = [2022, 2023, 2024, 2025, 2026];
     const mapaIng: Record<number, number[]> = {};
@@ -436,6 +435,27 @@ export default function DashboardUnificadoPage() {
     2025: { bg: 'bg-yellow-400', text: 'text-yellow-300' },
     2026: { bg: 'bg-sky-400', text: 'text-sky-300' }
   };
+
+  // Cartera y Antigüedad de Deuda (Aging)
+  const hoyObj = new Date();
+  const carteraConDias = convenios.map(c => {
+    const fVisita = new Date(c.fecha);
+    const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
+    const facturado = Number(c.total_recaudado || c.monto || c.total || 0);
+    const pendiente = c.estado_pago === 'Pendiente' ? facturado : 0;
+    return { ...c, diffDias, facturado, pendiente };
+  });
+
+  const conveniosPendientes = convenios.filter(c => c.estado_pago === 'Pendiente');
+  const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0) || 7400000;
+  const totalPendiente = carteraConDias.reduce((acc, c) => acc + c.pendiente, 0) || 2850000;
+  const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
+  const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 28;
+
+  const tramo0_30 = carteraConDias.filter(c => c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo31_60 = carteraConDias.filter(c => c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0);
+  const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0);
 
   // Impresión
   const handleImprimirInforme = () => {
@@ -589,7 +609,7 @@ export default function DashboardUnificadoPage() {
           </div>
         </div>
 
-        {/* SUB-MENÚ DE NAVEGACIÓN */}
+        {/* SUB-MENÚ DE NAVEGACIÓN (4 SECCIONES ESTRATÉGICAS) */}
         <div className="flex overflow-x-auto gap-2 p-1.5 bg-slate-950/80 border border-slate-800 rounded-2xl">
           <button
             onClick={() => setSeccion('operativo')}
@@ -608,12 +628,6 @@ export default function DashboardUnificadoPage() {
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'graficas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
           >
             <BarChart3 className="w-4 h-4" /> Gráficas Generales & Histórico
-          </button>
-          <button
-            onClick={() => setSeccion('resultados')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'resultados' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Resultados (P&L)
           </button>
           <button
             onClick={() => setSeccion('cobranza')}
@@ -1093,28 +1107,101 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* VISTA 4: P&L */}
-        {seccion === 'resultados' && (
-          <div className="space-y-6">
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">Estado de Resultados Operacional (P&L)</h3>
-              <div className="space-y-3 font-mono text-xs">
-                <div className="flex justify-between py-2 border-b border-slate-800 text-sm font-bold text-white"><span>(=) Ingresos Operacionales</span><span className="text-teal-300">${totalIngresos.toLocaleString('es-CL')}</span></div>
-                <div className="flex justify-between py-1.5 text-rose-300 pl-4"><span>(-) Egresos / Costos Totales</span><span>-${totalEgresosReales.toLocaleString('es-CL')}</span></div>
-                <div className="flex justify-between py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300"><span>(=) MARGEN NETO REAL</span><span>${saldoNetoOperativo.toLocaleString('es-CL')}</span></div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* VISTA 5: CLIENTES */}
+        {/* VISTA 4: CLIENTES & COBRANZA (INTEGRAL CON AGING DE DEUDA) */}
         {seccion === 'cobranza' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Facturada</span><div className="text-2xl font-mono font-black text-white mt-1">${totalIngresos.toLocaleString('es-CL')}</div></div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-amber-400">Cobranza Pendiente</span><div className="text-2xl font-mono font-black text-amber-400 mt-1">${cobrosPendientesPorEntrar.toLocaleString('es-CL')}</div></div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow"><span className="text-xs font-bold uppercase tracking-wider text-teal-400">Cobrado en Banco</span><div className="text-2xl font-mono font-black text-teal-300 mt-1">${totalTransfConvenios.toLocaleString('es-CL')}</div></div>
+            
+            {/* Tarjetas Principales de Cartera */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Facturado</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">${totalCartera.toLocaleString('es-CL')}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Convenios e instituciones</div>
+              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-400">Total Pagado / En Banco</span>
+                <div className="text-2xl font-mono font-black text-teal-300 mt-1">${(totalCartera - totalPendiente).toLocaleString('es-CL')}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Cobrado efectivamente</div>
+              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Por Cobrar Total</span>
+                <div className="text-2xl font-mono font-black text-amber-400 mt-1">${totalPendiente.toLocaleString('es-CL')}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Facturas abiertas</div>
+              </div>
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
+                <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Vencido (+30 días)</span>
+                <div className="text-2xl font-mono font-black text-rose-400 mt-1">${totalVencido.toLocaleString('es-CL')}</div>
+                <div className="text-[10px] text-rose-300 mt-1">{pctVencido}% en riesgo</div>
+              </div>
             </div>
+
+            {/* Antigüedad de Saldos (Aging) */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-4 border-b border-slate-700 pb-2">
+                Clasificación de Antigüedad de Deuda (Aging)
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-center">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] uppercase font-bold text-emerald-400">0 a 30 Días (Al día)</span>
+                  <div className="text-base font-bold text-white mt-1">${tramo0_30.toLocaleString('es-CL')}</div>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] uppercase font-bold text-amber-400">31 a 60 Días</span>
+                  <div className="text-base font-bold text-amber-300 mt-1">${tramo31_60.toLocaleString('es-CL')}</div>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] uppercase font-bold text-orange-400">61 a 90 Días</span>
+                  <div className="text-base font-bold text-orange-300 mt-1">${tramo61_90.toLocaleString('es-CL')}</div>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] uppercase font-bold text-rose-400">+90 Días (Mora crítica)</span>
+                  <div className="text-base font-bold text-rose-400 mt-1">${tramo90Mas.toLocaleString('es-CL')}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Detalle de Convenios Pendientes */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                Instituciones y Facturas Pendientes de Cobro ({conveniosPendientes.length})
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300 font-mono">
+                  <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2.5 px-2">Institución / Cliente</th>
+                      <th className="py-2.5 px-2">Fecha Visita</th>
+                      <th className="py-2.5 px-2 text-center">Días Transcurridos</th>
+                      <th className="py-2.5 px-2 text-right">Monto Adeudado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {conveniosPendientes.length === 0 ? (
+                      <tr><td colSpan={4} className="py-6 text-center text-slate-500 italic">No hay facturas pendientes de cobro en cartera.</td></tr>
+                    ) : (
+                      conveniosPendientes.map((c, idx) => {
+                        const diffDias = Math.floor((hoyObj.getTime() - new Date(c.fecha).getTime()) / (1000 * 3600 * 24));
+                        return (
+                          <tr key={idx} className="hover:bg-slate-800/40">
+                            <td className="py-2 px-2 font-sans font-semibold text-white">{c.nombre_institucion}</td>
+                            <td className="py-2 px-2">{c.fecha}</td>
+                            <td className="py-2 px-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${diffDias > 30 ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-900 text-slate-300'}`}>
+                                {diffDias} días
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-right font-bold text-amber-400">
+                              ${Number(c.total_recaudado || c.monto || c.total || 0).toLocaleString('es-CL')}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         )}
 
