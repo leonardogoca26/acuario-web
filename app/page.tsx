@@ -20,7 +20,10 @@ import {
   FileSpreadsheet,
   RotateCcw,
   List,
-  Printer
+  Printer,
+  Landmark,
+  ArrowDownRight,
+  ArrowUpRight
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -28,7 +31,7 @@ export default function DashboardUnificadoPage() {
   const hoyStr = new Date().toISOString().split('T')[0];
   const inicioMesStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
-  const [seccion, setSeccion] = useState<'operativo' | 'graficas' | 'resultados' | 'caja' | 'cobranza'>('operativo');
+  const [seccion, setSeccion] = useState<'operativo' | 'flujocaja' | 'graficas' | 'resultados' | 'cobranza'>('operativo');
   const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano (Alta)' | 'Invierno (Baja)'>('Todas');
   const [fechaDesde, setFechaDesde] = useState(inicioMesStr);
@@ -45,20 +48,6 @@ export default function DashboardUnificadoPage() {
   // Datos base
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
-
-  // Datos fijos de referencia para proyecciones de caja
-  const saldoDisponibleHoy = 8450000;
-  const compromisosMes = [
-    { cat: 'Proveedores', monto: 2300000, desc: 'Alimento de fauna, mantención acuarios' },
-    { cat: 'Remuneraciones', monto: 1800000, desc: 'Sueldos líquidos personal de planta' },
-    { cat: 'IVA / Impuestos', monto: 950000, desc: 'Declaración mensual F29' },
-    { cat: 'Créditos / Leasing', monto: 600000, desc: 'Cuotas bancarias equipamiento' },
-    { cat: 'Otros', monto: 350000, desc: 'Servicios básicos, seguros e imprevistos' },
-  ];
-
-  const totalCompromisos = compromisosMes.reduce((acc, c) => acc + c.monto, 0);
-  const cobrosEsperadosProximos30Dias = 4200000;
-  const cajaProyectada = saldoDisponibleHoy - totalCompromisos + cobrosEsperadosProximos30Dias;
 
   const cargarDatos = async () => {
     setCargando(true);
@@ -81,21 +70,34 @@ export default function DashboardUnificadoPage() {
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
       const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
 
-      const mBol = listaBol.map(b => ({
-        tipo: 'Boletería',
-        subtipo: 'Boletería',
-        id: b.id,
-        detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
-        fecha: b.fecha,
-        temporada: b.temporada,
-        monto: Number(b.total_ingresos || 0),
-        personas: Number(b.total_personas || 0),
-        efectivo: Number(b.efectivo || 0),
-        pos_compra_aqui: Number(b.pos_compra_aqui || 0),
-        pos_transbank: Number(b.pos_transbank || 0),
-        transferencia: Number(b.transferencias || 0),
-        credito: 0
-      }));
+      const mBol = listaBol.map(b => {
+        const ef = Number(b.efectivo || 0);
+        const caAbono = Number(b.abono_compra_aqui || 0);
+        const tbAbono = Number(b.abono_transbank || 0);
+        const tr = Number(b.transferencias || 0);
+
+        // Ingreso real en caja/banco calculado estilo Excel del director
+        const ingresoRealDia = ef + caAbono + tbAbono + tr;
+
+        return {
+          tipo: 'Boletería',
+          subtipo: 'Boletería',
+          id: b.id,
+          detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
+          fecha: b.fecha,
+          temporada: b.temporada,
+          monto: Number(b.total_ingresos || 0),
+          personas: Number(b.total_personas || 0),
+          efectivo: ef,
+          pos_compra_aqui: Number(b.pos_compra_aqui || 0),
+          pos_transbank: Number(b.pos_transbank || 0),
+          abono_compra_aqui: caAbono,
+          abono_transbank: tbAbono,
+          ingreso_real: ingresoRealDia > 0 ? ingresoRealDia : Number(b.total_ingresos || 0),
+          transferencia: tr,
+          credito: 0
+        };
+      });
 
       const mConv = listaConv.map(c => {
         const monto = Number(c.total_recaudado || 0);
@@ -111,6 +113,9 @@ export default function DashboardUnificadoPage() {
           efectivo: 0,
           pos_compra_aqui: 0,
           pos_transbank: 0,
+          abono_compra_aqui: 0,
+          abono_transbank: 0,
+          ingreso_real: c.estado_pago === 'Pagado' ? monto : 0,
           transferencia: monto,
           credito: c.estado_pago === 'Pendiente' ? monto : 0
         };
@@ -136,16 +141,23 @@ export default function DashboardUnificadoPage() {
     setAplicarFechas(false);
   };
 
-  // Totales Operativos Consolidados
+  // Totales Operacionales Consolidados (Devengado)
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Cálculos de Días y Promedios Estilo Excel del Director
+  // Totales de Flujo de Caja Real (Percibido en Banco y Mano)
+  const totalIngresoRealCaja = movimientos.reduce((acc, m) => acc + (m.ingreso_real || 0), 0);
+  const totalEfectivoCaja = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
+  const totalAbonoTransbank = movimientos.reduce((acc, m) => acc + (m.abono_transbank || 0), 0);
+  const totalAbonoCompraAqui = movimientos.reduce((acc, m) => acc + (m.abono_compra_aqui || 0), 0);
+  const totalVentaTarjetas = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0) + (m.pos_transbank || 0), 0);
+  const totalAbonosBancariosPOS = totalAbonoTransbank + totalAbonoCompraAqui;
+  const brechaPorLiquidar = totalVentaTarjetas - totalAbonosBancariosPOS;
+
+  // Promedios
   const diasUnicosOperados = Array.from(new Set(movimientos.map(m => m.fecha))).length;
   const personasPromedioDia = diasUnicosOperados > 0 ? Math.round(totalPublico / diasUnicosOperados) : 0;
   const ingresosPromedioDia = diasUnicosOperados > 0 ? Math.round(totalIngresos / diasUnicosOperados) : 0;
-  
-  // Conteo de meses únicos presentes en la consulta para sacar promedio mensual
   const mesesUnicosOperados = Math.max(1, new Set(movimientos.map(m => m.fecha.substring(0, 7))).size);
   const promedioMensual = Math.round(totalIngresos / mesesUnicosOperados);
 
@@ -156,14 +168,14 @@ export default function DashboardUnificadoPage() {
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
 
-  // Desgloses por Medio de Pago
+  // Desgloses por Medio de Pago (Venta en Puerta)
   const recEfectivo = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const recCompraAqui = movimientos.reduce((acc, m) => acc + (m.pos_compra_aqui || 0), 0);
   const recTransbank = movimientos.reduce((acc, m) => acc + (m.pos_transbank || 0), 0);
   const recTransf = movimientos.reduce((acc, m) => acc + (m.transferencia || 0), 0);
   const recCredito = movimientos.reduce((acc, m) => acc + (m.credito || 0), 0);
 
-  // Desgloses de Visitantes
+  // Visitantes por Canal
   const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
   const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0);
   const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
@@ -182,7 +194,37 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Función de Impresión de Informe Ejecutivo
+  // Agrupación por días para la sábana de conciliación de Flujo de Caja
+  const filasConciliacionPorDia: Record<string, any> = {};
+  movimientos.forEach(m => {
+    if (!filasConciliacionPorDia[m.fecha]) {
+      filasConciliacionPorDia[m.fecha] = {
+        fecha: m.fecha,
+        efectivo: 0,
+        venta_tarjetas: 0,
+        abono_transbank: 0,
+        abono_compra_aqui: 0,
+        transferencias: 0,
+        ingreso_real: 0,
+        total_venta: 0,
+        personas: 0
+      };
+    }
+    filasConciliacionPorDia[m.fecha].efectivo += (m.efectivo || 0);
+    filasConciliacionPorDia[m.fecha].venta_tarjetas += (m.pos_compra_aqui || 0) + (m.pos_transbank || 0);
+    filasConciliacionPorDia[m.fecha].abono_transbank += (m.abono_transbank || 0);
+    filasConciliacionPorDia[m.fecha].abono_compra_aqui += (m.abono_compra_aqui || 0);
+    filasConciliacionPorDia[m.fecha].transferencias += (m.transferencia || 0);
+    filasConciliacionPorDia[m.fecha].ingreso_real += (m.ingreso_real || 0);
+    filasConciliacionPorDia[m.fecha].total_venta += m.monto;
+    filasConciliacionPorDia[m.fecha].personas += m.personas;
+  });
+
+  const listaConciliacionOrdenada = Object.values(filasConciliacionPorDia).sort((a: any, b: any) => 
+    new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+  );
+
+  // Impresión de Informe Ejecutivo
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
@@ -196,7 +238,7 @@ export default function DashboardUnificadoPage() {
           <title>Informe Ejecutivo de Control Financiero</title>
           <style>
             body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
               color: #1e293b;
               padding: 40px;
               margin: 0;
@@ -225,7 +267,6 @@ export default function DashboardUnificadoPage() {
               font-weight: 800;
               margin: 0;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
             }
             .title p {
               font-size: 11px;
@@ -241,7 +282,7 @@ export default function DashboardUnificadoPage() {
             }
             .summary-cards {
               display: flex;
-              gap: 12px;
+              gap: 10px;
               margin-bottom: 24px;
             }
             .card {
@@ -249,7 +290,7 @@ export default function DashboardUnificadoPage() {
               background-color: #f8fafc;
               border: 1px solid #e2e8f0;
               border-radius: 8px;
-              padding: 12px;
+              padding: 10px;
             }
             .card span {
               font-size: 9px;
@@ -259,11 +300,11 @@ export default function DashboardUnificadoPage() {
               display: block;
             }
             .card .val {
-              font-size: 17px;
+              font-size: 16px;
               font-weight: 900;
               font-family: monospace;
               color: #0f172a;
-              margin-top: 4px;
+              margin-top: 3px;
             }
             .card .sub {
               font-size: 8px;
@@ -282,7 +323,6 @@ export default function DashboardUnificadoPage() {
               font-size: 12px;
               font-weight: 800;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
               border-bottom: 1px solid #cbd5e1;
               padding-bottom: 6px;
               margin: 0 0 10px 0;
@@ -343,22 +383,22 @@ export default function DashboardUnificadoPage() {
             <div class="card">
               <span>Afluencia Total</span>
               <div class="val">${totalPublico} pers.</div>
-              <div class="sub">Total de visitantes</div>
+              <div class="sub">Visitantes ingresados</div>
             </div>
             <div class="card">
               <span>Promedio Día ($)</span>
               <div class="val">$${ingresosPromedioDia.toLocaleString('es-CL')}</div>
-              <div class="sub">Ingreso medio jornada</div>
+              <div class="sub">Venta promedio</div>
             </div>
             <div class="card">
-              <span>Promedio Personas/Día</span>
+              <span>Personas/Día</span>
               <div class="val">${personasPromedioDia} pers.</div>
-              <div class="sub">Afluencia media jornada</div>
+              <div class="sub">Afluencia media</div>
             </div>
             <div class="card">
               <span>Promedio Mes</span>
               <div class="val">$${promedioMensual.toLocaleString('es-CL')}</div>
-              <div class="sub">Rendimiento mensual</div>
+              <div class="sub">Mensualizado</div>
             </div>
           </div>
 
@@ -410,10 +450,7 @@ export default function DashboardUnificadoPage() {
 
           <script>
             const img = document.getElementById('logoImg');
-            const dispararImpresion = () => {
-              window.print();
-            };
-
+            const dispararImpresion = () => { window.print(); };
             if (img && !img.complete) {
               img.onload = dispararImpresion;
               img.onerror = dispararImpresion;
@@ -442,19 +479,8 @@ export default function DashboardUnificadoPage() {
   const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
   const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 28;
 
-  const tramo0_30 = carteraConDias.filter(c => c.diffDias <= 30).reduce((acc, c) => acc + c.pendiente, 0) || 750000;
-  const tramo31_60 = carteraConDias.filter(c => c.diffDias > 30 && c.diffDias <= 60).reduce((acc, c) => acc + c.pendiente, 0) || 1100000;
-  const tramo61_90 = carteraConDias.filter(c => c.diffDias > 60 && c.diffDias <= 90).reduce((acc, c) => acc + c.pendiente, 0) || 650000;
-  const tramo90Mas = carteraConDias.filter(c => c.diffDias > 90).reduce((acc, c) => acc + c.pendiente, 0) || 350000;
-
   // P&L
   const ventasMesActual = 12450000;
-  const ventasMesAnterior = 10800000;
-  const ventasMesAnoAnterior = 9500000;
-  const ventasAcumuladoAnual = 88400000;
-  const varMesAnterior = (((ventasMesActual - ventasMesAnterior) / ventasMesAnterior) * 100).toFixed(1);
-  const varAnoAnterior = (((ventasMesActual - ventasMesAnoAnterior) / ventasMesAnoAnterior) * 100).toFixed(1);
-
   const costosDirectos = 4200000;
   const margenBruto = ventasMesActual - costosDirectos;
   const gastosAdminVentas = 3600000;
@@ -483,7 +509,7 @@ export default function DashboardUnificadoPage() {
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera Principal con Botón de Informe Ejecutivo */}
+        {/* Cabecera Principal */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -497,7 +523,6 @@ export default function DashboardUnificadoPage() {
             <button
               onClick={handleImprimirInforme}
               className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 hover:border-sky-500/50 rounded-xl text-xs font-bold shadow-lg transition"
-              title="Generar e imprimir informe ejecutivo formal"
             >
               <Printer className="w-4 h-4" /> Informe Ejecutivo
             </button>
@@ -534,6 +559,12 @@ export default function DashboardUnificadoPage() {
             <CalendarIcon className="w-4 h-4" /> Ejecutivo & Operacional
           </button>
           <button
+            onClick={() => setSeccion('flujocaja')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'flujocaja' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <Landmark className="w-4 h-4" /> Flujo de Caja Real (Banco)
+          </button>
+          <button
             onClick={() => setSeccion('graficas')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'graficas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
           >
@@ -541,15 +572,9 @@ export default function DashboardUnificadoPage() {
           </button>
           <button
             onClick={() => setSeccion('resultados')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'resultados' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'resultados' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
           >
             <FileSpreadsheet className="w-4 h-4" /> Resultados (P&L)
-          </button>
-          <button
-            onClick={() => setSeccion('caja')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'caja' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            <DollarSign className="w-4 h-4" /> Caja & Compromisos
           </button>
           <button
             onClick={() => setSeccion('cobranza')}
@@ -622,7 +647,7 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 0: TARJETAS DE PROMEDIOS CLAVE ESTILO EXCEL DEL DIRECTOR */}
+            {/* SECCIÓN PROMEDIOS CLAVE ESTILO EXCEL DEL DIRECTOR */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 shadow">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Días Operados</span>
@@ -919,7 +944,115 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 2: GRÁFICAS GENERALES */}
+        {/* VISTA 2: FLUJO DE CAJA REAL & CONCILIACIÓN (ESTILO DIRECTOR) */}
+        {/* ========================================================= */}
+        {seccion === 'flujocaja' && (
+          <div className="space-y-6">
+            
+            {/* Alerta de Conciliación Bancaria */}
+            <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-2xl p-4 flex items-start gap-3 shadow-lg">
+              <Landmark className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <strong className="text-white block uppercase tracking-wider">Criterio de Caja Real (Banco & Tesorería)</strong>
+                <span className="text-emerald-200">
+                  Esta vista refleja el dinero real ingresado: Efectivo en caja + Liquidaciones pagadas por Transbank y Compra Aquí + Transferencias.
+                </span>
+              </div>
+            </div>
+
+            {/* Tarjetas de Conciliación */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Real en Cuenta</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${totalIngresoRealCaja.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Efectivo + Abonos de Pasarelas</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Efectivo Físico Recaudado</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${totalEfectivoCaja.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Caja chica y tesorería</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Liquidaciones Recibidas (POS)</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${totalAbonosBancariosPOS.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">TB: ${totalAbonoTransbank.toLocaleString('es-CL')} | CA: ${totalAbonoCompraAqui.toLocaleString('es-CL')}</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Ventas por Liquidar en Banco</span>
+                <div className="text-2xl font-mono font-black text-rose-400 mt-1">
+                  ${brechaPorLiquidar > 0 ? brechaPorLiquidar.toLocaleString('es-CL') : '0'}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Tarjetas pasadas pendientes de abono</div>
+              </div>
+            </div>
+
+            {/* SÁBANA DIARIA DE CONCILIACIÓN ESTILO EXCEL DEL DIRECTOR */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Sábana Diaria de Conciliación y Liquidación
+                  </h3>
+                  <p className="text-xs text-slate-400">Comparativa directa de vouchers vs depósitos en cuenta bancaria</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300 font-mono">
+                  <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2 px-2">Fecha</th>
+                      <th className="py-2 px-2 text-right">Efectivo Día</th>
+                      <th className="py-2 px-2 text-right">Venta Tarjeta (POS)</th>
+                      <th className="py-2 px-2 text-right text-teal-300">Abono Transbank</th>
+                      <th className="py-2 px-2 text-right text-teal-300">Abono Compra Aquí</th>
+                      <th className="py-2 px-2 text-right">Transferencias</th>
+                      <th className="py-2 px-2 text-right text-white font-bold bg-slate-900/60">Ingreso Real $</th>
+                      <th className="py-2 px-2 text-center">Visitantes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {listaConciliacionOrdenada.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-6 text-center text-slate-500 italic">
+                          No hay registros de liquidación en este período.
+                        </td>
+                      </tr>
+                    ) : (
+                      listaConciliacionOrdenada.map((row: any, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-2 px-2 font-bold text-white">{row.fecha}</td>
+                          <td className="py-2 px-2 text-right">${row.efectivo.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-slate-400">${row.venta_tarjetas.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_transbank.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_compra_aqui.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right">${row.transferencias.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right font-black text-emerald-400 bg-slate-900/60">
+                            ${row.ingreso_real.toLocaleString('es-CL')}
+                          </td>
+                          <td className="py-2 px-2 text-center text-slate-400">{row.personas}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* VISTA 3: GRÁFICAS GENERALES */}
         {/* ========================================================= */}
         {seccion === 'graficas' && (
           <div className="space-y-6">
@@ -960,7 +1093,7 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 3: ESTADO DE RESULTADOS (P&L) */}
+        {/* VISTA 4: ESTADO DE RESULTADOS (P&L) */}
         {/* ========================================================= */}
         {seccion === 'resultados' && (
           <div className="space-y-6">
@@ -1006,44 +1139,6 @@ export default function DashboardUnificadoPage() {
                   <span className="font-sans">(=) UTILIDAD NETA FINAL</span>
                   <span>${utilidadNeta.toLocaleString('es-CL')}</span>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* VISTA 4: CAJA & COMPROMISOS */}
-        {/* ========================================================= */}
-        {seccion === 'caja' && (
-          <div className="space-y-6">
-            <div className="bg-rose-950/70 border border-rose-500/50 rounded-2xl p-5 shadow-xl flex items-start gap-4">
-              <AlertCircle className="w-7 h-7 text-rose-400 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Diagnóstico Estratégico de Liquidez a 30 Días
-                </h4>
-                <p className="text-xs text-rose-200 mt-1 leading-relaxed">
-                  Tus compromisos ineludibles suman <strong>$6.000.000</strong> y tu caja base cubre <strong>$2.450.000</strong> sin cobranza activa.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-slate-400 uppercase">Disponible Hoy</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">${saldoDisponibleHoy.toLocaleString('es-CL')}</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-rose-400 uppercase">Compromisos 30 Días</span>
-                <div className="text-2xl font-mono font-black text-rose-400 mt-1">-${totalCompromisos.toLocaleString('es-CL')}</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase">Cobros Esperados</span>
-                <div className="text-2xl font-mono font-black text-teal-300 mt-1">+${cobrosEsperadosProximos30Dias.toLocaleString('es-CL')}</div>
-              </div>
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-sky-400 uppercase">Caja Proyectada</span>
-                <div className="text-2xl font-mono font-black text-sky-300 mt-1">${cajaProyectada.toLocaleString('es-CL')}</div>
               </div>
             </div>
           </div>
