@@ -121,7 +121,6 @@ export default function DashboardUnificadoPage() {
   // Cálculos Operativos
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
-  const ticketProm = totalPublico > 0 ? Math.round(totalIngresos / totalPublico) : 0;
 
   // Cálculos Calendario
   const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -319,29 +318,59 @@ export default function DashboardUnificadoPage() {
               </div>
             </div>
 
-            {/* Tarjetas de Totales del Período */}
+            {/* Tarjetas de Totales del Período - DESGLOSE DE INGRESOS Y VISITANTES */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              
+              {/* FILA 1: INGRESOS */}
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Período</span>
+                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Recaudación Total</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${totalIngresos.toLocaleString('es-CL')}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">{movimientos.length} registros cargados</div>
               </div>
+              
+              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Recaudación Boletería</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Entradas y Tienda</div>
+              </div>
+
+              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Recaudación Convenios</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  ${movimientos.filter(m => m.tipo !== 'Boletería').reduce((acc, m) => acc + m.monto, 0).toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Salón, Cafetería, Operadores</div>
+              </div>
+
+              {/* FILA 2: Afluencia / Público */}
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
                 <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Público Total</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
-                  {totalPublico} <span className="text-sm font-normal text-slate-400">visitantes</span>
+                  {totalPublico} <span className="text-sm font-normal text-slate-400">pers.</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">Afluencia en este rango</div>
               </div>
+
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Gasto Medio</span>
+                <span className="text-[11px] font-bold text-orange-400 uppercase tracking-wider">Visitantes Boletería</span>
                 <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${ticketProm.toLocaleString('es-CL')}
+                  {movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0)} <span className="text-sm font-normal text-slate-400">pers.</span>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Por visitante ingresado</div>
+                <div className="text-[10px] text-slate-400 mt-1">Taquilla principal</div>
               </div>
+
+              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow">
+                <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider">Visitantes Convenios</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">
+                  {movimientos.filter(m => m.tipo !== 'Boletería').reduce((acc, m) => acc + m.personas, 0)} <span className="text-sm font-normal text-slate-400">pers.</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Delegaciones y Grupos</div>
+              </div>
+
             </div>
 
             {/* VISTA CALENDARIO MENSUAL */}
