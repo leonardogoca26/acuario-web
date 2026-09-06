@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   BarChart3, 
@@ -39,7 +39,7 @@ export default function DashboardUnificadoPage() {
   const [aplicarFechas, setAplicarFechas] = useState(true);
   const [cargando, setCargando] = useState(true);
 
-  // Estados de acordeón expandible para la matriz anual
+  // Estados de acordeón expandible
   const [expandirIngresos, setExpandirIngresos] = useState(false);
   const [expandirEgresos, setExpandirEgresos] = useState(false);
 
@@ -107,7 +107,7 @@ export default function DashboardUnificadoPage() {
 
       const mBol = listaBol.map(b => ({
         tipo: 'Boletería',
-        subtipo: 'Boletería',
+        subtipo: 'Boletería & Entradas',
         id: b.id,
         detalle: `Turno ${b.turno || 'Completo'} - Cajero: ${b.cajero || 'Principal'} (#${b.id})`,
         fecha: b.fecha,
@@ -125,7 +125,7 @@ export default function DashboardUnificadoPage() {
         const monto = Number(c.total_recaudado || c.monto || c.total || 0);
         return {
           tipo: 'Convenio',
-          subtipo: c.tipo_ingreso || 'Convenio / Delegación',
+          subtipo: c.tipo_ingreso || 'Convenios & Delegaciones',
           id: c.id,
           detalle: c.nombre_institucion || 'Institución / Convenio',
           fecha: c.fecha,
@@ -224,7 +224,7 @@ export default function DashboardUnificadoPage() {
 
   // Desgloses por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
-  const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
+  const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación' || m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
   const recSalon = movimientos.filter(m => m.subtipo === 'Arriendo de Salón').reduce((acc, m) => acc + m.monto, 0);
   const recCafeteria = movimientos.filter(m => m.subtipo === 'Cafetería').reduce((acc, m) => acc + m.monto, 0);
@@ -238,7 +238,7 @@ export default function DashboardUnificadoPage() {
 
   // Visitantes por Canal
   const visBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.personas, 0);
-  const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.personas, 0);
+  const visColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación' || m.subtipo === 'Convenios & Delegaciones').reduce((acc, m) => acc + m.personas, 0);
   const visOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.personas, 0);
 
   // Calendario
@@ -254,6 +254,73 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].personas += m.personas;
     mapaPorFecha[m.fecha].registros.push(m);
   });
+
+  // =========================================================================
+  // CÁLCULO DINÁMICO DE LA MATRIZ ANUAL (FILTRA CATEGORÍAS CON SALDO CERO)
+  // =========================================================================
+  const { categoriasIngresosFiltradas, categoriasEgresosFiltradas, totalesIngresosMes, totalesEgresosMes, margenNetoMes, totalAnualIngresos, totalAnualEgresos, totalAnualMargen, porcentajeMargenAnual } = useMemo(() => {
+    const mapaIngresosCat: Record<string, number[]> = {};
+    const mapaEgresosCat: Record<string, number[]> = {};
+
+    const totIngMes = Array(12).fill(0);
+    const totEgrMes = Array(12).fill(0);
+
+    // Agrupar Ingresos reales por categoría y mes (0 = Ene, 11 = Dic)
+    movimientos.forEach(m => {
+      if (!m.fecha) return;
+      const mesIdx = new Date(m.fecha + 'T12:00:00').getMonth();
+      const cat = m.subtipo || m.tipo || 'Varios';
+      if (!mapaIngresosCat[cat]) mapaIngresosCat[cat] = Array(12).fill(0);
+      mapaIngresosCat[cat][mesIdx] += m.monto;
+      totIngMes[mesIdx] += m.monto;
+    });
+
+    // Agrupar Egresos reales por categoría y mes
+    egresos.forEach(e => {
+      if (!e.fecha) return;
+      const mesIdx = new Date(e.fecha + 'T12:00:00').getMonth();
+      const cat = e.categoria || e.tipo || 'Gastos Operacionales';
+      const monto = Number(e.monto || e.total || 0);
+      if (!mapaEgresosCat[cat]) mapaEgresosCat[cat] = Array(12).fill(0);
+      mapaEgresosCat[cat][mesIdx] += monto;
+      totEgrMes[mesIdx] += monto;
+    });
+
+    // FILTRO DINÁMICO: Eliminar categorías que sumen 0 en todo el año
+    const catIngFiltradas = Object.keys(mapaIngresosCat)
+      .map(cat => {
+        const valores = mapaIngresosCat[cat];
+        const total = valores.reduce((acc, v) => acc + v, 0);
+        return { cat, valores, total };
+      })
+      .filter(item => item.total > 0);
+
+    const catEgrFiltradas = Object.keys(mapaEgresosCat)
+      .map(cat => {
+        const valores = mapaEgresosCat[cat];
+        const total = valores.reduce((acc, v) => acc + v, 0);
+        return { cat, valores, total };
+      })
+      .filter(item => item.total > 0);
+
+    const margenMes = totIngMes.map((ing, i) => ing - totEgrMes[i]);
+    const totAnualIng = totIngMes.reduce((a, b) => a + b, 0);
+    const totAnualEgr = totEgrMes.reduce((a, b) => a + b, 0);
+    const totAnualMarg = totAnualIng - totAnualEgr;
+    const pctMarg = totAnualIng > 0 ? Math.round((totAnualMarg / totAnualIng) * 100) : 0;
+
+    return {
+      categoriasIngresosFiltradas: catIngFiltradas,
+      categoriasEgresosFiltradas: catEgrFiltradas,
+      totalesIngresosMes: totIngMes,
+      totalesEgresosMes: totEgrMes,
+      margenNetoMes: margenMes,
+      totalAnualIngresos: totAnualIng,
+      totalAnualEgresos: totAnualEgr,
+      totalAnualMargen: totAnualMarg,
+      porcentajeMargenAnual: pctMarg
+    };
+  }, [movimientos, egresos]);
 
   // Consolidación de la Sábana Diaria
   const mapaConciliacion: Record<string, any> = {};
@@ -323,7 +390,7 @@ export default function DashboardUnificadoPage() {
     return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  // Impresión de Informe Ejecutivo
+  // Impresión
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
@@ -968,21 +1035,21 @@ export default function DashboardUnificadoPage() {
             </div>
 
             {/* ========================================================= */}
-            {/* MATRIZ ANUAL EXPANDIBLE / CONTRAÍBLE (ACORDEÓN)           */}
+            {/* MATRIZ ANUAL DINÁMICA (OCULTA CATEGORÍAS EN CERO)          */}
             {/* ========================================================= */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3 mb-4">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Estacionalidad & Presupuesto Anual</span>
                   <h3 className="text-sm font-black text-white">Proyección y Balance Mensualizado (Ingresos vs Egresos)</h3>
-                  <p className="text-[11px] text-slate-400">Haz clic en Ingresos o Egresos para desplegar los subconceptos</p>
+                  <p className="text-[11px] text-slate-400">Haz clic en Ingresos o Egresos para desplegar categorías activas</p>
                 </div>
                 <div className="flex items-center gap-3 text-xs font-mono">
                   <div className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-slate-300">
-                    Margen Anual: <strong className="text-emerald-400 font-bold">37%</strong>
+                    Margen Anual: <strong className={`font-bold ${totalAnualMargen >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{porcentajeMargenAnual}%</strong>
                   </div>
                   <div className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-slate-300">
-                    Utilidad Libre: <strong className="text-teal-300 font-bold">$27.008.882</strong>
+                    Utilidad Libre: <strong className={`font-bold ${totalAnualMargen >= 0 ? 'text-teal-300' : 'text-rose-400'}`}>${totalAnualMargen.toLocaleString('es-CL')}</strong>
                   </div>
                 </div>
               </div>
@@ -1018,91 +1085,39 @@ export default function DashboardUnificadoPage() {
                         <span className="text-[10px] text-slate-400 font-mono">{expandirIngresos ? '▼' : '►'}</span>
                         (+) Ingresos
                       </td>
-                      <td className="py-2 px-2 text-slate-200">14.772.253</td>
-                      <td className="py-2 px-2 text-slate-200 font-bold text-teal-200">21.793.084</td>
-                      <td className="py-2 px-2 text-slate-300">2.240.406</td>
-                      <td className="py-2 px-2 text-slate-400">34.364</td>
-                      <td className="py-2 px-2 text-slate-300">1.702.954</td>
-                      <td className="py-2 px-2 text-slate-300">2.818.904</td>
-                      <td className="py-2 px-2 text-slate-200 font-semibold text-teal-200">8.000.258</td>
-                      <td className="py-2 px-2 text-slate-300">5.055.967</td>
-                      <td className="py-2 px-2 text-slate-300">4.040.596</td>
-                      <td className="py-2 px-2 text-slate-300">4.137.229</td>
-                      <td className="py-2 px-2 text-slate-300">3.873.882</td>
-                      <td className="py-2 px-2 text-slate-300">4.428.223</td>
+                      {totalesIngresosMes.map((val, idx) => (
+                        <td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-slate-200 font-semibold' : 'text-slate-600 italic'}`}>
+                          {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                        </td>
+                      ))}
                       <td className="py-2 px-3 font-bold text-teal-300 bg-slate-950/60 border-l border-slate-700">
-                        $72.898.120
+                        ${totalAnualIngresos.toLocaleString('es-CL')}
                       </td>
                     </tr>
 
-                    {/* Desglose Ingresos (Expandible) */}
+                    {/* Desglose Ingresos Dinámico: Solo categorías con movimiento */}
                     {expandirIngresos && (
-                      <>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">🎟️ Boletería & Entradas</td>
-                          <td className="py-1.5 px-2">12.500.000</td>
-                          <td className="py-1.5 px-2">18.200.000</td>
-                          <td className="py-1.5 px-2">1.800.000</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">900.000</td>
-                          <td className="py-1.5 px-2">1.500.000</td>
-                          <td className="py-1.5 px-2">6.200.000</td>
-                          <td className="py-1.5 px-2">3.800.000</td>
-                          <td className="py-1.5 px-2">2.500.000</td>
-                          <td className="py-1.5 px-2">2.400.000</td>
-                          <td className="py-1.5 px-2">2.100.000</td>
-                          <td className="py-1.5 px-2">3.000.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$54.900.000</td>
+                      categoriasIngresosFiltradas.length === 0 ? (
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic">
+                          <td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados de ingresos en el período</td>
                         </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">🏫 Colegios / Delegaciones</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">240.406</td>
-                          <td className="py-1.5 px-2">34.364</td>
-                          <td className="py-1.5 px-2">550.000</td>
-                          <td className="py-1.5 px-2">800.000</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">455.967</td>
-                          <td className="py-1.5 px-2">840.596</td>
-                          <td className="py-1.5 px-2">1.137.229</td>
-                          <td className="py-1.5 px-2">1.273.882</td>
-                          <td className="py-1.5 px-2">628.223</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$5.960.667</td>
-                        </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">🚌 Operadores Turísticos</td>
-                          <td className="py-1.5 px-2">1.850.000</td>
-                          <td className="py-1.5 px-2">2.800.000</td>
-                          <td className="py-1.5 px-2">100.000</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">150.000</td>
-                          <td className="py-1.5 px-2">350.000</td>
-                          <td className="py-1.5 px-2">1.400.000</td>
-                          <td className="py-1.5 px-2">600.000</td>
-                          <td className="py-1.5 px-2">400.000</td>
-                          <td className="py-1.5 px-2">350.000</td>
-                          <td className="py-1.5 px-2">300.000</td>
-                          <td className="py-1.5 px-2">500.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$8.800.000</td>
-                        </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">☕ Cafetería / Salón</td>
-                          <td className="py-1.5 px-2">422.253</td>
-                          <td className="py-1.5 px-2">793.084</td>
-                          <td className="py-1.5 px-2">100.000</td>
-                          <td className="py-1.5 px-2">0</td>
-                          <td className="py-1.5 px-2">102.954</td>
-                          <td className="py-1.5 px-2">168.904</td>
-                          <td className="py-1.5 px-2">400.258</td>
-                          <td className="py-1.5 px-2">200.000</td>
-                          <td className="py-1.5 px-2">300.000</td>
-                          <td className="py-1.5 px-2">250.000</td>
-                          <td className="py-1.5 px-2">200.000</td>
-                          <td className="py-1.5 px-2">300.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">$3.237.453</td>
-                        </tr>
-                      </>
+                      ) : (
+                        categoriasIngresosFiltradas.map((item, idx) => (
+                          <tr key={idx} className="bg-slate-900/40 text-[11px] text-slate-400 hover:bg-slate-900/70">
+                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">
+                              • {item.cat}
+                            </td>
+                            {item.valores.map((v, i) => (
+                              <td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>
+                                {v > 0 ? v.toLocaleString('es-CL') : '-'}
+                              </td>
+                            ))}
+                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-teal-200">
+                              ${item.total.toLocaleString('es-CL')}
+                            </td>
+                          </tr>
+                        ))
+                      )
                     )}
 
                     {/* Fila Padre: Egresos */}
@@ -1114,91 +1129,39 @@ export default function DashboardUnificadoPage() {
                         <span className="text-[10px] text-slate-400 font-mono">{expandirEgresos ? '▼' : '►'}</span>
                         (-) Egresos
                       </td>
-                      <td className="py-2 px-2 text-slate-400">4.437.878</td>
-                      <td className="py-2 px-2 text-slate-400">4.333.109</td>
-                      <td className="py-2 px-2 text-slate-400">4.213.705</td>
-                      <td className="py-2 px-2 text-slate-400">3.308.723</td>
-                      <td className="py-2 px-2 text-slate-400">4.431.620</td>
-                      <td className="py-2 px-2 text-slate-400">3.142.317</td>
-                      <td className="py-2 px-2 text-slate-400">4.328.651</td>
-                      <td className="py-2 px-2 text-slate-400">2.153.811</td>
-                      <td className="py-2 px-2 text-slate-400">3.563.285</td>
-                      <td className="py-2 px-2 text-slate-400">2.930.576</td>
-                      <td className="py-2 px-2 text-slate-400">4.216.853</td>
-                      <td className="py-2 px-2 text-slate-400">4.828.710</td>
+                      {totalesEgresosMes.map((val, idx) => (
+                        <td key={idx} className={`py-2 px-2 ${val > 0 ? 'text-rose-300 font-semibold' : 'text-slate-600 italic'}`}>
+                          {val > 0 ? val.toLocaleString('es-CL') : '-'}
+                        </td>
+                      ))}
                       <td className="py-2 px-3 font-bold text-rose-300 bg-slate-950/60 border-l border-slate-700">
-                        -$45.889.238
+                        -${totalAnualEgresos.toLocaleString('es-CL')}
                       </td>
                     </tr>
 
-                    {/* Desglose Egresos (Expandible) */}
+                    {/* Desglose Egresos Dinámico: Solo categorías con movimiento */}
                     {expandirEgresos && (
-                      <>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">👥 Remuneraciones Líquidas</td>
-                          <td className="py-1.5 px-2">2.200.000</td>
-                          <td className="py-1.5 px-2">2.200.000</td>
-                          <td className="py-1.5 px-2">1.800.000</td>
-                          <td className="py-1.5 px-2">1.600.000</td>
-                          <td className="py-1.5 px-2">1.800.000</td>
-                          <td className="py-1.5 px-2">1.600.000</td>
-                          <td className="py-1.5 px-2">2.000.000</td>
-                          <td className="py-1.5 px-2">1.400.000</td>
-                          <td className="py-1.5 px-2">1.700.000</td>
-                          <td className="py-1.5 px-2">1.600.000</td>
-                          <td className="py-1.5 px-2">1.800.000</td>
-                          <td className="py-1.5 px-2">2.200.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$21.900.000</td>
+                      categoriasEgresosFiltradas.length === 0 ? (
+                        <tr className="bg-slate-900/40 text-[11px] text-slate-500 italic">
+                          <td colSpan={14} className="text-left py-2 pl-6">No hay registros detallados de egresos en el período</td>
                         </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">🐟 Alimento Fauna & Operación</td>
-                          <td className="py-1.5 px-2">1.100.000</td>
-                          <td className="py-1.5 px-2">1.050.000</td>
-                          <td className="py-1.5 px-2">1.200.000</td>
-                          <td className="py-1.5 px-2">850.000</td>
-                          <td className="py-1.5 px-2">1.350.000</td>
-                          <td className="py-1.5 px-2">780.000</td>
-                          <td className="py-1.5 px-2">1.250.000</td>
-                          <td className="py-1.5 px-2">350.000</td>
-                          <td className="py-1.5 px-2">980.000</td>
-                          <td className="py-1.5 px-2">650.000</td>
-                          <td className="py-1.5 px-2">1.250.000</td>
-                          <td className="py-1.5 px-2">1.450.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$11.460.000</td>
-                        </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">⚡ Servicios Básicos & Mantención</td>
-                          <td className="py-1.5 px-2">650.000</td>
-                          <td className="py-1.5 px-2">620.000</td>
-                          <td className="py-1.5 px-2">750.000</td>
-                          <td className="py-1.5 px-2">550.000</td>
-                          <td className="py-1.5 px-2">780.000</td>
-                          <td className="py-1.5 px-2">460.000</td>
-                          <td className="py-1.5 px-2">680.000</td>
-                          <td className="py-1.5 px-2">250.000</td>
-                          <td className="py-1.5 px-2">580.000</td>
-                          <td className="py-1.5 px-2">420.000</td>
-                          <td className="py-1.5 px-2">680.000</td>
-                          <td className="py-1.5 px-2">750.000</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$7.170.000</td>
-                        </tr>
-                        <tr className="bg-slate-900/40 text-[11px] text-slate-400">
-                          <td className="text-left py-1.5 pl-6 font-sans">📑 Impuestos (F29) & Créditos</td>
-                          <td className="py-1.5 px-2">487.878</td>
-                          <td className="py-1.5 px-2">463.109</td>
-                          <td className="py-1.5 px-2">463.705</td>
-                          <td className="py-1.5 px-2">308.723</td>
-                          <td className="py-1.5 px-2">501.620</td>
-                          <td className="py-1.5 px-2">302.317</td>
-                          <td className="py-1.5 px-2">398.651</td>
-                          <td className="py-1.5 px-2">153.811</td>
-                          <td className="py-1.5 px-2">303.285</td>
-                          <td className="py-1.5 px-2">260.576</td>
-                          <td className="py-1.5 px-2">486.853</td>
-                          <td className="py-1.5 px-2">428.710</td>
-                          <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold">-$5.359.238</td>
-                        </tr>
-                      </>
+                      ) : (
+                        categoriasEgresosFiltradas.map((item, idx) => (
+                          <tr key={idx} className="bg-slate-900/40 text-[11px] text-slate-400 hover:bg-slate-900/70">
+                            <td className="text-left py-1.5 pl-6 font-sans truncate max-w-[150px]">
+                              • {item.cat}
+                            </td>
+                            {item.valores.map((v, i) => (
+                              <td key={i} className={`py-1.5 px-2 ${v > 0 ? 'text-slate-300' : 'text-slate-600 italic'}`}>
+                                {v > 0 ? v.toLocaleString('es-CL') : '-'}
+                              </td>
+                            ))}
+                            <td className="py-1.5 px-3 bg-slate-950/40 border-l border-slate-700 font-semibold text-rose-300">
+                              -${item.total.toLocaleString('es-CL')}
+                            </td>
+                          </tr>
+                        ))
+                      )
                     )}
 
                     {/* Fila Fija: Saldo Neto */}
@@ -1206,20 +1169,16 @@ export default function DashboardUnificadoPage() {
                       <td className="text-left py-2.5 px-2.5 font-sans text-white">
                         (=) Margen Neto
                       </td>
-                      <td className="py-2 px-2 text-emerald-400">+10.334.375</td>
-                      <td className="py-2 px-2 text-emerald-400">+17.459.975</td>
-                      <td className="py-2 px-2 text-rose-400">-1.973.299</td>
-                      <td className="py-2 px-2 text-rose-400">-3.274.359</td>
-                      <td className="py-2 px-2 text-rose-400">-2.728.666</td>
-                      <td className="py-2 px-2 text-rose-400">-323.413</td>
-                      <td className="py-2 px-2 text-emerald-400">+3.671.607</td>
-                      <td className="py-2 px-2 text-emerald-400">+2.902.156</td>
-                      <td className="py-2 px-2 text-emerald-400">+477.311</td>
-                      <td className="py-2 px-2 text-emerald-400">+1.206.653</td>
-                      <td className="py-2 px-2 text-rose-400">-342.971</td>
-                      <td className="py-2 px-2 text-rose-400">-400.487</td>
-                      <td className="py-2 px-3 font-black text-emerald-400 bg-slate-950 border-l border-slate-700">
-                        +$27.008.882
+                      {margenNetoMes.map((val, idx) => (
+                        <td 
+                          key={idx} 
+                          className={`py-2 px-2 ${val > 0 ? 'text-emerald-400' : val < 0 ? 'text-rose-400' : 'text-slate-600 italic'}`}
+                        >
+                          {val !== 0 ? (val > 0 ? `+${val.toLocaleString('es-CL')}` : val.toLocaleString('es-CL')) : '-'}
+                        </td>
+                      ))}
+                      <td className={`py-2 px-3 font-black bg-slate-950 border-l border-slate-700 ${totalAnualMargen >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {totalAnualMargen >= 0 ? `+$${totalAnualMargen.toLocaleString('es-CL')}` : `-$${Math.abs(totalAnualMargen).toLocaleString('es-CL')}`}
                       </td>
                     </tr>
 
