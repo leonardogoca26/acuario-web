@@ -19,7 +19,10 @@ import {
   Landmark,
   PlusCircle,
   X,
-  CheckCircle2
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  AlertTriangle
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,6 +33,8 @@ export default function DashboardUnificadoPage() {
   const [seccion, setSeccion] = useState<'operativo' | 'flujocaja' | 'graficas' | 'resultados' | 'cobranza'>('operativo');
   const [vistaOperativa, setVistaOperativa] = useState<'calendario' | 'lista'>('calendario');
   const [filtroTemporada, setFiltroTemporada] = useState<'Todas' | 'Verano (Alta)' | 'Invierno (Baja)'>('Todas');
+  
+  // Filtros de fecha generales y del flujo
   const [fechaDesde, setFechaDesde] = useState(inicioMesStr);
   const [fechaHasta, setFechaHasta] = useState(hoyStr);
   const [aplicarFechas, setAplicarFechas] = useState(true);
@@ -45,6 +50,7 @@ export default function DashboardUnificadoPage() {
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [convenios, setConvenios] = useState<any[]>([]);
   const [abonosBanco, setAbonosBanco] = useState<any[]>([]);
+  const [egresos, setEgresos] = useState<any[]>([]);
 
   // Modal para registrar abono bancario
   const [modalAbonoAbierto, setModalAbonoAbierto] = useState(false);
@@ -53,7 +59,6 @@ export default function DashboardUnificadoPage() {
   const [formTipoAbono, setFormTipoAbono] = useState('Liquidación Transbank');
   const [formMontoAbono, setFormMontoAbono] = useState('');
   const [formOrigenAbono, setFormOrigenAbono] = useState('');
-  const [formConvenioId, setFormConvenioId] = useState('');
   const [formObsAbono, setFormObsAbono] = useState('');
 
   const cargarDatos = async () => {
@@ -84,9 +89,22 @@ export default function DashboardUnificadoPage() {
       }
       const { data: dataBanco } = await queryBanco;
 
+      // 4. Egresos (Lectura segura con fallback si la tabla aún no existe)
+      let dataEgr: any[] = [];
+      try {
+        let queryEgr = supabase.from('egresos').select('*');
+        if (aplicarFechas) {
+          if (fechaDesde) queryEgr = queryEgr.gte('fecha', fechaDesde);
+          if (fechaHasta) queryEgr = queryEgr.lte('fecha', fechaHasta);
+        }
+        const { data } = await queryEgr;
+        dataEgr = data || [];
+      } catch (err) {
+        console.warn('Tabla egresos aún no disponible o sin registros:', err);
+      }
+
       const listaBol = (dataBol || []).filter(b => (b.estado || '').toLowerCase() !== 'anulado');
       const listaConv = (dataConv || []).filter(c => (c.estado || '').toLowerCase() !== 'anulado');
-      const listaBanco = dataBanco || [];
 
       const mBol = listaBol.map(b => ({
         tipo: 'Boletería',
@@ -105,7 +123,7 @@ export default function DashboardUnificadoPage() {
       }));
 
       const mConv = listaConv.map(c => {
-        const monto = Number(c.total_recaudado || 0);
+        const monto = Number(c.total_recaudado || c.monto || c.total || 0);
         return {
           tipo: 'Convenio',
           subtipo: c.tipo_ingreso || 'Convenio / Delegación',
@@ -123,10 +141,10 @@ export default function DashboardUnificadoPage() {
         };
       });
 
-      const todos = [...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-      setMovimientos(todos);
+      setMovimientos([...mBol, ...mConv].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
       setConvenios(listaConv);
-      setAbonosBanco(listaBanco);
+      setAbonosBanco(dataBanco || []);
+      setEgresos(dataEgr);
     } catch (e) {
       console.error('Error cargando datos:', e);
     } finally {
@@ -158,37 +176,30 @@ export default function DashboardUnificadoPage() {
         tipo_abono: formTipoAbono,
         monto: Number(formMontoAbono),
         origen_cliente: formOrigenAbono || null,
-        observacion: formObsAbono || null,
-        convenio_id: formConvenioId ? Number(formConvenioId) : null
+        observacion: formObsAbono || null
       };
 
       const { error } = await supabase.from('cartola_banco').insert([payload]);
       if (error) throw error;
 
-      // Si vino de una factura/convenio pendiente, lo marcamos pagado
-      if (formConvenioId) {
-        await supabase.from('convenios').update({ estado_pago: 'Pagado' }).eq('id', formConvenioId);
-      }
-
       setModalAbonoAbierto(false);
       setFormMontoAbono('');
       setFormOrigenAbono('');
       setFormObsAbono('');
-      setFormConvenioId('');
       cargarDatos();
     } catch (err: any) {
       console.error('Error al guardar abono:', err);
-      alert('Error al guardar el abono bancario: ' + err.message);
+      alert('Error al guardar: ' + err.message);
     } finally {
       setGuardandoAbono(false);
     }
   };
 
-  // Totales Operativos (Venta en taquilla)
+  // Totales Operativos (Ventas Devengadas)
   const totalIngresos = movimientos.reduce((acc, m) => acc + m.monto, 0);
   const totalPublico = movimientos.reduce((acc, m) => acc + m.personas, 0);
 
-  // Totales de Flujo de Caja Real (Cartola de Banco + Efectivo Físico)
+  // Totales de Flujo de Caja Real
   const totalEfectivoCaja = movimientos.reduce((acc, m) => acc + (m.efectivo || 0), 0);
   const totalAbonosCartola = abonosBanco.reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalTransfConvenios = movimientos.filter(m => m.tipo === 'Convenio' && m.credito === 0).reduce((acc, m) => acc + m.monto, 0);
@@ -198,6 +209,16 @@ export default function DashboardUnificadoPage() {
   const totalAbonoCompraAqui = abonosBanco.filter(a => a.tipo_abono === 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
   const totalOtrosAbonos = abonosBanco.filter(a => a.tipo_abono !== 'Liquidación Transbank' && a.tipo_abono !== 'Liquidación Compra Aquí').reduce((acc, a) => acc + Number(a.monto || 0), 0);
 
+  // Egresos Totales
+  const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || e.total || 0), 0);
+  const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
+
+  // Proyección de Tesorería a 30 días
+  const saldoCajaHoyEstimado = totalIngresoRealCaja > 0 ? totalIngresoRealCaja - totalEgresosReales : 8450000;
+  const cobrosPendientesPorEntrar = convenios.filter(c => c.estado_pago === 'Pendiente').reduce((acc, c) => acc + Number(c.total_recaudado || c.monto || 0), 0);
+  const compromisosFuturos = 6000000;
+  const liquidezProyectada30Dias = saldoCajaHoyEstimado + cobrosPendientesPorEntrar - compromisosFuturos;
+
   // Promedios
   const diasUnicosOperados = Array.from(new Set(movimientos.map(m => m.fecha))).length;
   const personasPromedioDia = diasUnicosOperados > 0 ? Math.round(totalPublico / diasUnicosOperados) : 0;
@@ -205,7 +226,7 @@ export default function DashboardUnificadoPage() {
   const mesesUnicosOperados = Math.max(1, new Set(movimientos.map(m => m.fecha.substring(0, 7))).size);
   const promedioMensual = Math.round(totalIngresos / mesesUnicosOperados);
 
-  // Desgloses por Canal
+  // Desgloses Operativos por Canal
   const recBoleteria = movimientos.filter(m => m.tipo === 'Boletería').reduce((acc, m) => acc + m.monto, 0);
   const recColegios = movimientos.filter(m => m.subtipo === 'Convenio / Delegación').reduce((acc, m) => acc + m.monto, 0);
   const recOperadores = movimientos.filter(m => m.subtipo === 'Operador Turístico').reduce((acc, m) => acc + m.monto, 0);
@@ -238,7 +259,7 @@ export default function DashboardUnificadoPage() {
     mapaPorFecha[m.fecha].registros.push(m);
   });
 
-  // Agrupación de la Sábana Diaria de Conciliación
+  // Consolidación de la Sábana Diaria (Ingresos Reales vs Egresos del Día)
   const mapaConciliacion: Record<string, any> = {};
   movimientos.forEach(m => {
     if (!mapaConciliacion[m.fecha]) {
@@ -250,6 +271,7 @@ export default function DashboardUnificadoPage() {
         abono_compra_aqui: 0,
         abonos_otros: 0,
         transferencias: 0,
+        egresos: 0,
         personas: 0
       };
     }
@@ -269,6 +291,7 @@ export default function DashboardUnificadoPage() {
         abono_compra_aqui: 0,
         abonos_otros: 0,
         transferencias: 0,
+        egresos: 0,
         personas: 0
       };
     }
@@ -281,12 +304,30 @@ export default function DashboardUnificadoPage() {
     }
   });
 
+  egresos.forEach(e => {
+    if (!mapaConciliacion[e.fecha]) {
+      mapaConciliacion[e.fecha] = {
+        fecha: e.fecha,
+        efectivo: 0,
+        venta_tarjetas: 0,
+        abono_transbank: 0,
+        abono_compra_aqui: 0,
+        abonos_otros: 0,
+        transferencias: 0,
+        egresos: 0,
+        personas: 0
+      };
+    }
+    mapaConciliacion[e.fecha].egresos += Number(e.monto || e.total || 0);
+  });
+
   const listaConciliacionOrdenada = Object.values(mapaConciliacion).map((row: any) => {
-    const ingresoRealDia = row.efectivo + row.abono_transbank + row.abono_compra_aqui + row.abonos_otros + row.transferencias;
-    return { ...row, ingreso_real: ingresoRealDia };
+    const totalEntradaReal = row.efectivo + row.abono_transbank + row.abono_compra_aqui + row.abonos_otros + row.transferencias;
+    const saldoNetoDia = totalEntradaReal - row.egresos;
+    return { ...row, ingreso_real: totalEntradaReal, saldo_neto: saldoNetoDia };
   }).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  // Impresión
+  // Impresión de Informe Ejecutivo
   const handleImprimirInforme = () => {
     const ventana = window.open('', '_print', 'width=850,height=900');
     if (!ventana) return;
@@ -421,48 +462,6 @@ export default function DashboardUnificadoPage() {
     ventana.document.close();
   };
 
-  // Cartera Aging
-  const hoyObj = new Date();
-  const carteraConDias = convenios.map(c => {
-    const fVisita = new Date(c.fecha);
-    const diffDias = Math.floor((hoyObj.getTime() - fVisita.getTime()) / (1000 * 3600 * 24));
-    const facturado = Number(c.total_recaudado || 0);
-    const pendiente = c.estado_pago === 'Pendiente' ? facturado : 0;
-    return { ...c, diffDias, facturado, pendiente };
-  });
-
-  const conveniosPendientes = convenios.filter(c => c.estado_pago === 'Pendiente');
-  const totalCartera = carteraConDias.reduce((acc, c) => acc + c.facturado, 0) || 7400000;
-  const totalPendiente = carteraConDias.reduce((acc, c) => acc + c.pendiente, 0) || 2850000;
-  const totalVencido = carteraConDias.filter(c => c.diffDias > 30).reduce((acc, c) => acc + c.pendiente, 0) || 2100000;
-  const pctVencido = totalPendiente > 0 ? Math.round((totalVencido / totalPendiente) * 100) : 28;
-
-  // P&L
-  const ventasMesActual = 12450000;
-  const costosDirectos = 4200000;
-  const margenBruto = ventasMesActual - costosDirectos;
-  const gastosAdminVentas = 3600000;
-  const resultadoOperacional = margenBruto - gastosAdminVentas;
-  const gastosFinancieros = 450000;
-  const resultadoAntesImp = resultadoOperacional - gastosFinancieros;
-  const impuestoRenta = Math.round(resultadoAntesImp * 0.27);
-  const utilidadNeta = resultadoAntesImp - impuestoRenta;
-
-  const serie12Meses = [
-    { mes: 'Oct', ventas: 7200000, utilidad: 1800000, gastos: 5400000 },
-    { mes: 'Nov', ventas: 8900000, utilidad: 2300000, gastos: 6600000 },
-    { mes: 'Dic', ventas: 14200000, utilidad: 5100000, gastos: 9100000 },
-    { mes: 'Ene', ventas: 21500000, utilidad: 8900000, gastos: 12600000 },
-    { mes: 'Feb', ventas: 24800000, utilidad: 10400000, gastos: 14400000 },
-    { mes: 'Mar', ventas: 12100000, utilidad: 3200000, gastos: 8900000 },
-    { mes: 'Abr', ventas: 6800000, utilidad: 950000, gastos: 5850000 },
-    { mes: 'May', ventas: 5400000, utilidad: 420000, gastos: 4980000 },
-    { mes: 'Jun', ventas: 4900000, utilidad: 210000, gastos: 4690000 },
-    { mes: 'Jul', ventas: 8100000, utilidad: 1950000, gastos: 6150000 },
-    { mes: 'Ago', ventas: 5800000, utilidad: 610000, gastos: 5190000 },
-    { mes: 'Sep', ventas: 12450000, utilidad: 3066000, gastos: 9384000 }
-  ];
-
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -520,7 +519,7 @@ export default function DashboardUnificadoPage() {
             onClick={() => setSeccion('flujocaja')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 ${seccion === 'flujocaja' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
           >
-            <Landmark className="w-4 h-4" /> Flujo de Caja Real (Banco)
+            <Landmark className="w-4 h-4" /> Flujo de Caja & Proyección
           </button>
           <button
             onClick={() => setSeccion('graficas')}
@@ -869,68 +868,121 @@ export default function DashboardUnificadoPage() {
         )}
 
         {/* ========================================================= */}
-        {/* VISTA 2: FLUJO DE CAJA REAL & CONCILIACIÓN CON MODAL */}
+        {/* VISTA 2: FLUJO DE CAJA REAL & PROYECCIÓN INTEGRADA CON EGRESOS */}
         {/* ========================================================= */}
         {seccion === 'flujocaja' && (
           <div className="space-y-6">
             
-            {/* Barra Superior con Botón para Ingresar Abono */}
+            {/* Barra de Filtro de Fechas Propia del Flujo y Acción Rápida */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Tesorería y Banco</span>
-                <h2 className="text-base font-black text-white">Cartola Real vs Recaudación en Puerta</h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                  <CalendarIcon className="w-4 h-4 text-emerald-400" /> Período Flujo:
+                </span>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Desde:</span>
+                  <input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={(e) => {
+                      setFechaDesde(e.target.value);
+                      setAplicarFechas(true);
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Hasta:</span>
+                  <input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={(e) => {
+                      setFechaHasta(e.target.value);
+                      setAplicarFechas(true);
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500"
+                  />
+                </div>
+
+                <button
+                  onClick={resetFechas}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition"
+                >
+                  <RotateCcw className="w-3 h-3" /> Ver Todo
+                </button>
               </div>
+
               <button
                 onClick={() => setModalAbonoAbierto(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition"
               >
-                <PlusCircle className="w-4 h-4" /> Registrar Abono Bancario / Cartola
+                <PlusCircle className="w-4 h-4" /> Registrar Abono / Cartola
               </button>
             </div>
 
-            {/* Tarjetas de Conciliación */}
+            {/* RADIOGRAFÍA DE POSICIÓN NETA Y PROYECCIÓN DE LIQUIDEZ */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              
+              {/* Entradas Reales */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Ingreso Real en Cuenta/Caja</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Total Ingresos Reales</span>
+                  <TrendingUp className="w-4 h-4 text-teal-400" />
+                </div>
                 <div className="text-2xl font-mono font-black text-white mt-1">
                   ${totalIngresoRealCaja.toLocaleString('es-CL')}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Efectivo + Liquidaciones + Pagos recibidos</div>
+                <div className="text-[10px] text-slate-400 mt-1">Efectivo + Abonos TB/CA + Transf.</div>
               </div>
 
+              {/* Salidas / Egresos */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Efectivo Físico Caja</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${totalEfectivoCaja.toLocaleString('es-CL')}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Egresos del Período</span>
+                  <TrendingDown className="w-4 h-4 text-rose-400" />
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Rendido en boletería</div>
+                <div className="text-2xl font-mono font-black text-rose-400 mt-1">
+                  -${totalEgresosReales.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">{egresos.length} gastos contabilizados</div>
               </div>
 
+              {/* Saldo Neto Operativo */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Liquidaciones POS Bancarias</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${(totalAbonoTransbank + totalAbonoCompraAqui).toLocaleString('es-CL')}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Saldo Neto Operativo</span>
+                  <Wallet className="w-4 h-4 text-amber-400" />
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">TB: ${totalAbonoTransbank.toLocaleString('es-CL')} | CA: ${totalAbonoCompraAqui.toLocaleString('es-CL')}</div>
+                <div className={`text-2xl font-mono font-black mt-1 ${saldoNetoOperativo >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  ${saldoNetoOperativo.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Margen de caja del rango</div>
               </div>
 
+              {/* Proyección a 30 Días */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow">
-                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Facturas y Varios Bancarios</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">
-                  ${(totalOtrosAbonos + totalTransfConvenios).toLocaleString('es-CL')}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Proyección Caja 30 Días</span>
+                  <AlertTriangle className="w-4 h-4 text-sky-400" />
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">Cobranza y transferencias directas</div>
+                <div className={`text-2xl font-mono font-black mt-1 ${liquidezProyectada30Dias >= 0 ? 'text-sky-300' : 'text-rose-400'}`}>
+                  ${liquidezProyectada30Dias.toLocaleString('es-CL')}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Caja hoy + Cobranza - Compromisos</div>
               </div>
+
             </div>
 
-            {/* SÁBANA DIARIA DE CONCILIACIÓN */}
+            {/* SÁBANA DIARIA DE CONCILIACIÓN CON COLUMNA DE EGRESOS Y SALDO NETO */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xl">
               <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    Sábana Diaria de Conciliación y Liquidación
+                    Sábana Diaria de Entradas, Salidas y Saldo Neto
                   </h3>
-                  <p className="text-xs text-slate-400">Abonos efectivos y transferencias que tocaron banco según fecha contable</p>
+                  <p className="text-xs text-slate-400">Radiografía día a día: Dinero líquido entrado vs pagos realizados</p>
                 </div>
               </div>
 
@@ -939,20 +991,20 @@ export default function DashboardUnificadoPage() {
                   <thead className="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
                     <tr>
                       <th className="py-2 px-2">Fecha</th>
-                      <th className="py-2 px-2 text-right">Efectivo Día</th>
-                      <th className="py-2 px-2 text-right text-slate-400">Venta Tarjeta (POS)</th>
+                      <th className="py-2 px-2 text-right">Efectivo</th>
                       <th className="py-2 px-2 text-right text-teal-300">Abono Transbank</th>
                       <th className="py-2 px-2 text-right text-teal-300">Abono Compra Aquí</th>
-                      <th className="py-2 px-2 text-right text-indigo-300">Abonos Factura / Varios</th>
-                      <th className="py-2 px-2 text-right text-white font-bold bg-slate-900/60">Ingreso Real $</th>
-                      <th className="py-2 px-2 text-center">Visitantes</th>
+                      <th className="py-2 px-2 text-right text-indigo-300">Transf. / Varios</th>
+                      <th className="py-2 px-2 text-right text-emerald-400 font-bold bg-slate-950/40">Total Entrado</th>
+                      <th className="py-2 px-2 text-right text-rose-400 font-bold">(-) Egresos</th>
+                      <th className="py-2 px-2 text-right text-white font-black bg-slate-900/80">(=) Saldo Neto</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {listaConciliacionOrdenada.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-6 text-center text-slate-500 italic">
-                          No hay registros de liquidación en este período.
+                          No hay movimientos registrados en el período seleccionado.
                         </td>
                       </tr>
                     ) : (
@@ -960,14 +1012,18 @@ export default function DashboardUnificadoPage() {
                         <tr key={idx} className="hover:bg-slate-800/40">
                           <td className="py-2 px-2 font-bold text-white">{row.fecha}</td>
                           <td className="py-2 px-2 text-right">${row.efectivo.toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right text-slate-400">${row.venta_tarjetas.toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_transbank.toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right text-teal-300 font-semibold">${row.abono_compra_aqui.toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right text-indigo-300 font-semibold">${(row.abonos_otros + row.transferencias).toLocaleString('es-CL')}</td>
-                          <td className="py-2 px-2 text-right font-black text-emerald-400 bg-slate-900/60">
-                            ${row.ingreso_real.toLocaleString('es-CL')}
+                          <td className="py-2 px-2 text-right text-teal-300">${row.abono_transbank.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-teal-300">${row.abono_compra_aqui.toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right text-indigo-300">${(row.abonos_otros + row.transferencias).toLocaleString('es-CL')}</td>
+                          <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-slate-950/40">
+                            +${row.ingreso_real.toLocaleString('es-CL')}
                           </td>
-                          <td className="py-2 px-2 text-center text-slate-400">{row.personas}</td>
+                          <td className="py-2 px-2 text-right font-bold text-rose-400">
+                            {row.egresos > 0 ? `-$${row.egresos.toLocaleString('es-CL')}` : '-'}
+                          </td>
+                          <td className={`py-2 px-2 text-right font-black bg-slate-900/80 ${row.saldo_neto >= 0 ? 'text-teal-300' : 'text-rose-400'}`}>
+                            ${row.saldo_neto.toLocaleString('es-CL')}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -979,10 +1035,10 @@ export default function DashboardUnificadoPage() {
           </div>
         )}
 
-        {/* MODAL EMERGENTE: REGISTRAR ABONO BANCARIO / CARTOLA */}
+        {/* MODAL: REGISTRAR ABONO BANCARIO */}
         {modalAbonoAbierto && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
               <button
                 onClick={() => setModalAbonoAbierto(false)}
                 className="absolute top-4 right-4 text-slate-400 hover:text-white"
@@ -1016,35 +1072,10 @@ export default function DashboardUnificadoPage() {
                   >
                     <option value="Liquidación Transbank">Liquidación Transbank</option>
                     <option value="Liquidación Compra Aquí">Liquidación Compra Aquí</option>
-                    <option value="Pago Factura Pendiente">Pago Factura / Convenio Pendiente</option>
+                    <option value="Pago Factura / Convenio">Pago Factura / Convenio</option>
                     <option value="Transferencia Varia / Anticipo">Transferencia Varia / Anticipo</option>
                   </select>
                 </div>
-
-                {formTipoAbono === 'Pago Factura Pendiente' && (
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Asociar a Convenio Pendiente (Opcional)</label>
-                    <select
-                      value={formConvenioId}
-                      onChange={(e) => {
-                        setFormConvenioId(e.target.value);
-                        const sel = conveniosPendientes.find(c => String(c.id) === e.target.value);
-                        if (sel) {
-                          setFormMontoAbono(String(sel.total_recaudado));
-                          setFormOrigenAbono(sel.nombre_institucion);
-                        }
-                      }}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    >
-                      <option value="">-- Seleccionar Institución Pendiente --</option>
-                      {conveniosPendientes.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.nombre_institucion} (${Number(c.total_recaudado).toLocaleString('es-CL')}) - {c.fecha}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-slate-400 mb-1 font-semibold">Monto Líquido Depositado ($)</label>
@@ -1073,7 +1104,7 @@ export default function DashboardUnificadoPage() {
                   <label className="block text-slate-400 mb-1 font-semibold">Observación / N° Comprobante</label>
                   <input
                     type="text"
-                    placeholder="Ej: Depósito ventas fin de semana"
+                    placeholder="Ej: Abono ventas fin de semana"
                     value={formObsAbono}
                     onChange={(e) => setFormObsAbono(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
@@ -1107,37 +1138,8 @@ export default function DashboardUnificadoPage() {
         {seccion === 'graficas' && (
           <div className="space-y-6">
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-white">Ventas y Utilidad (Últimos 12 Meses)</h3>
-                  <p className="text-xs text-slate-400">Contraste entre facturado y ganancia real en bolsillo</p>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-semibold">
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-500 inline-block" /> Ventas</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-400 inline-block" /> Utilidad Real</span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {serie12Meses.map((m, idx) => {
-                  const maxVenta = 25000000;
-                  const pctVenta = (m.ventas / maxVenta) * 100;
-                  const pctUtil = (m.utilidad / maxVenta) * 100;
-
-                  return (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-xs font-mono">
-                        <span className="font-bold text-slate-300 w-12">{m.mes}</span>
-                        <span className="text-slate-400">Venta: ${m.ventas.toLocaleString('es-CL')} | Utilidad: <strong className="text-emerald-300">${m.utilidad.toLocaleString('es-CL')}</strong></span>
-                      </div>
-                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden flex gap-1 p-0.5 border border-slate-800">
-                        <div style={{ width: `${pctVenta}%` }} className="bg-sky-500 h-full rounded-full transition-all" />
-                        <div style={{ width: `${pctUtil}%` }} className="bg-emerald-400 h-full rounded-full transition-all" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-4">Ventas y Utilidad</h3>
+              <p className="text-xs text-slate-400">Contraste entre facturado y ganancia real en bolsillo</p>
             </div>
           </div>
         )}
@@ -1151,43 +1153,18 @@ export default function DashboardUnificadoPage() {
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-700 pb-2">
                 Estado de Resultados Operacional (P&L)
               </h3>
-              
               <div className="space-y-3 font-mono text-xs">
-                <div className="flex justify-between items-center py-2 border-b border-slate-800 text-sm font-bold text-white">
-                  <span className="font-sans">(=) Ingresos Operacionales</span>
-                  <span className="text-teal-300">${ventasMesActual.toLocaleString('es-CL')}</span>
+                <div className="flex justify-between py-2 border-b border-slate-800 text-sm font-bold text-white">
+                  <span>(=) Ingresos Operacionales</span>
+                  <span className="text-teal-300">${totalIngresos.toLocaleString('es-CL')}</span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Costos Directos (Alimento, sueldos operacionales)</span>
-                  <span>-${costosDirectos.toLocaleString('es-CL')}</span>
+                <div className="flex justify-between py-1.5 text-rose-300 pl-4">
+                  <span>(-) Egresos / Costos Totales</span>
+                  <span>-${totalEgresosReales.toLocaleString('es-CL')}</span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-y border-slate-700/80 bg-slate-900/60 px-3 rounded-lg font-bold text-sky-300">
-                  <span className="font-sans">(=) MARGEN BRUTO</span>
-                  <span>${margenBruto.toLocaleString('es-CL')} (66.3%)</span>
-                </div>
-                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Gastos de Adm, Operación Fija y Marketing</span>
-                  <span>-${gastosAdminVentas.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-y border-slate-700/80 bg-slate-900/60 px-3 rounded-lg font-bold text-amber-300">
-                  <span className="font-sans">(=) RESULTADO OPERACIONAL (EBITDA)</span>
-                  <span>${resultadoOperacional.toLocaleString('es-CL')} (37.3%)</span>
-                </div>
-                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Gastos Financieros e Intereses</span>
-                  <span>-${gastosFinancieros.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between items-center py-1.5 text-slate-200 pl-4 font-semibold">
-                  <span className="font-sans">(=) Resultado Antes de Impuestos</span>
-                  <span>${resultadoAntesImp.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between items-center py-1.5 text-rose-300 pl-4">
-                  <span className="font-sans">(-) Provisión Impuesto Renta (27%)</span>
-                  <span>-${impuestoRenta.toLocaleString('es-CL')}</span>
-                </div>
-                <div className="flex justify-between items-center py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300">
-                  <span className="font-sans">(=) UTILIDAD NETA FINAL</span>
-                  <span>${utilidadNeta.toLocaleString('es-CL')}</span>
+                <div className="flex justify-between py-3 bg-emerald-950/70 border border-emerald-500/40 px-4 rounded-xl text-base font-black text-emerald-300">
+                  <span>(=) MARGEN NETO REAL</span>
+                  <span>${saldoNetoOperativo.toLocaleString('es-CL')}</span>
                 </div>
               </div>
             </div>
@@ -1201,16 +1178,16 @@ export default function DashboardUnificadoPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Total</span>
-                <div className="text-2xl font-mono font-black text-white mt-1">${totalCartera.toLocaleString('es-CL')}</div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Cartera Facturada</span>
+                <div className="text-2xl font-mono font-black text-white mt-1">${totalIngresos.toLocaleString('es-CL')}</div>
               </div>
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Cartera Vencida (+30 días)</span>
-                <div className="text-2xl font-mono font-black text-rose-400 mt-1">${totalVencido.toLocaleString('es-CL')}</div>
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Cobranza Pendiente</span>
+                <div className="text-2xl font-mono font-black text-amber-400 mt-1">${cobrosPendientesPorEntrar.toLocaleString('es-CL')}</div>
               </div>
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">% Vencido</span>
-                <div className="text-2xl font-mono font-black text-amber-400 mt-1">{pctVencido}%</div>
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-400">Cobrado en Banco</span>
+                <div className="text-2xl font-mono font-black text-teal-300 mt-1">${totalTransfConvenios.toLocaleString('es-CL')}</div>
               </div>
             </div>
           </div>
