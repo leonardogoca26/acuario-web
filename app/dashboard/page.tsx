@@ -22,11 +22,50 @@ import {
   TrendingUp,
   Wallet,
   AlertTriangle,
-  Trash2
+  Trash2,
+  Lock,
+  ShieldAlert,
+  LogOut
 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardUnificadoPage() {
+  // =========================================================================
+  // CONTROL DE SEGURIDAD Y ACCESO EXCLUSIVO DIRECCIÓN
+  // =========================================================================
+  const [autorizado, setAutorizado] = useState<boolean | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [errorPin, setErrorPin] = useState(false);
+
+  useEffect(() => {
+    const perfil = localStorage.getItem('perfil_usuario_acuario');
+    if (perfil === 'director') {
+      setAutorizado(true);
+    } else {
+      setAutorizado(false);
+    }
+  }, []);
+
+  const handleVerificarPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Acepta 2026 o 1234
+    if (pinInput === '2026' || pinInput === '1234') {
+      localStorage.setItem('perfil_usuario_acuario', 'director');
+      setAutorizado(true);
+      setErrorPin(false);
+      setPinInput('');
+    } else {
+      setErrorPin(true);
+    }
+  };
+
+  const handleCerrarSesion = () => {
+    localStorage.setItem('perfil_usuario_acuario', 'cajero');
+    setAutorizado(false);
+    window.location.href = '/';
+  };
+
+  // Fechas por defecto
   const hoyStr = new Date().toISOString().split('T')[0];
   const inicioMesStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
@@ -187,8 +226,10 @@ export default function DashboardUnificadoPage() {
   };
 
   useEffect(() => {
-    cargarDatos();
-  }, [filtroTemporada, fechaDesde, fechaHasta, aplicarFechas]);
+    if (autorizado) {
+      cargarDatos();
+    }
+  }, [autorizado, filtroTemporada, fechaDesde, fechaHasta, aplicarFechas]);
 
   const resetFechas = () => {
     setFechaDesde('');
@@ -258,7 +299,6 @@ export default function DashboardUnificadoPage() {
   const totalEgresosReales = egresos.reduce((acc, e) => acc + Number(e.monto || 0), 0);
   const saldoNetoOperativo = totalIngresoRealCaja - totalEgresosReales;
 
-  // CÁLCULO 100% REAL Y MATEMÁTICO (SIN NÚMEROS FIJOS)
   const saldoCajaHoyEstimado = totalIngresoRealCaja - totalEgresosReales;
   const cobrosPendientesPorEntrar = convenios
     .filter(c => (c.estado_pago || '').toLowerCase() === 'pendiente')
@@ -620,11 +660,73 @@ export default function DashboardUnificadoPage() {
     ventana.document.close();
   };
 
+  // =========================================================================
+  // PANTALLA DE BLOQUEO / ACCESO RESTRINGIDO
+  // =========================================================================
+  if (autorizado === false) {
+    return (
+      <div className="min-h-screen bg-[#070d18] text-slate-100 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-sm p-8 shadow-2xl text-center space-y-6 relative">
+          <div className="w-16 h-16 rounded-2xl bg-amber-950/80 border border-amber-600/50 mx-auto flex items-center justify-center text-amber-400 shadow-inner">
+            <Lock className="w-8 h-8" />
+          </div>
+
+          <div>
+            <h2 className="text-lg font-black text-white uppercase tracking-wider">Acceso Restringido</h2>
+            <p className="text-xs text-slate-400 mt-1">
+              El Centro Financiero y Proyección es exclusivo para la Dirección General.
+            </p>
+          </div>
+
+          <form onSubmit={handleVerificarPin} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                autoFocus
+                placeholder="Ingresa PIN de Dirección"
+                value={pinInput}
+                onChange={(e) => { setPinInput(e.target.value); setErrorPin(false); }}
+                className="w-full text-center tracking-widest text-xl font-mono font-bold bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-xl py-2.5 text-white outline-none transition"
+              />
+              {errorPin && (
+                <p className="text-xs text-rose-400 font-bold mt-2 flex items-center justify-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" /> Clave incorrecta
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Link
+                href="/"
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition flex items-center justify-center"
+              >
+                Volver al Menú
+              </Link>
+              <button
+                type="submit"
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg transition"
+              >
+                Desbloquear
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (autorizado === null) {
+    return <div className="min-h-screen bg-[#070d18]" />;
+  }
+
+  // =========================================================================
+  // VISTA PRINCIPAL AUTORIZADA
+  // =========================================================================
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera Principal */}
+        {/* Cabecera Principal con Botón de Bloqueo / Cerrar Sesión */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-xs font-semibold text-sky-400 hover:text-sky-300 transition mb-1">
@@ -635,6 +737,14 @@ export default function DashboardUnificadoPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleCerrarSesion}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-900 rounded-xl text-xs font-semibold transition shadow"
+              title="Bloquear y volver a modo cajero"
+            >
+              <LogOut className="w-3.5 h-3.5" /> Bloquear
+            </button>
+
             <button
               onClick={handleImprimirInforme}
               className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 hover:border-sky-500/50 rounded-xl text-xs font-bold shadow-lg transition"
@@ -990,7 +1100,6 @@ export default function DashboardUnificadoPage() {
                 </table>
               </div>
 
-              {/* Controles de Paginación Sábana Diaria */}
               {totalPaginasSocio > 1 && (
                 <div className="flex justify-between items-center pt-3 border-t border-slate-700 text-xs">
                   <span className="text-slate-400">Página {paginaSocio} de {totalPaginasSocio}</span>
@@ -1073,7 +1182,6 @@ export default function DashboardUnificadoPage() {
                 </table>
               </div>
 
-              {/* Controles de Paginación Cartola */}
               {totalPaginasCartola > 1 && (
                 <div className="flex justify-between items-center pt-3 border-t border-slate-700 text-xs">
                   <span className="text-slate-400">Página {paginaCartola} de {totalPaginasCartola}</span>
