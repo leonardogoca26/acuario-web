@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { 
   Ticket, 
   Users, 
@@ -55,7 +54,7 @@ export default function HomeMenuPage() {
   ];
 
   return (
-    <div className="relative min-h-screen bg-[#070d18] text-slate-100 flex flex-col justify-between overflow-hidden">
+    <div className="relative min-h-[calc(100vh-4rem)] bg-[#070d18] text-slate-100 flex flex-col justify-between overflow-hidden">
       
       {/* Fondo Acuático con Capa de Oscurecimiento */}
       <div 
@@ -65,56 +64,7 @@ export default function HomeMenuPage() {
         }}
       />
 
-      {/* 1. BARRA SUPERIOR DE NAVEGACIÓN */}
-      <header className="relative z-10 w-full border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          
-          {/* Marca / Ubicación */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sky-950/80 border border-sky-800 flex items-center justify-center text-lg shadow-inner">
-              🐠
-            </div>
-            <div className="leading-tight">
-              <span className="text-[11px] font-black uppercase tracking-wider text-sky-400 block">
-                Control Operativo
-              </span>
-              <span className="text-[10px] text-slate-400">
-                Entre Lagos • Puyehue
-              </span>
-            </div>
-          </div>
-
-          {/* Menú Superior Rápido */}
-          <nav className="flex items-center gap-1 sm:gap-2 text-xs font-semibold">
-            <Link 
-              href="/boleteria" 
-              className="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/60 transition"
-            >
-              Boletería
-            </Link>
-            <Link 
-              href="/convenios" 
-              className="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/60 transition"
-            >
-              Convenios
-            </Link>
-            <Link 
-              href="/egresos" 
-              className="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/60 transition"
-            >
-              Egresos
-            </Link>
-            <Link 
-              href="/dashboard" 
-              className="ml-2 px-4 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold shadow-lg shadow-sky-600/30 transition transform active:scale-95"
-            >
-              Dashboard
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      {/* 2. CUERPO PRINCIPAL */}
+      {/* CUERPO PRINCIPAL */}
       <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-12 flex-1 flex flex-col justify-center items-center text-center">
         
         {/* Etiqueta Superior */}
@@ -169,7 +119,7 @@ export default function HomeMenuPage() {
 
       </main>
 
-      {/* 3. PIE DE PÁGINA */}
+      {/* PIE DE PÁGINA */}
       <footer className="relative z-10 w-full border-t border-slate-800/60 bg-slate-950/40 backdrop-blur-sm py-4 text-center text-[10px] text-slate-500 font-mono">
         Sistema de Control Interno © {new Date().getFullYear()} Parque Acuario Puyehue
       </footer>
